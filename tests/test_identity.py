@@ -5,9 +5,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+from isaac.config.settings import get_settings
+
 
 class TestSoulModule:
     """Tests for ``isaac.identity.soul``."""
+
+    @pytest.fixture(autouse=True)
+    def use_original_identity(self, monkeypatch):
+        monkeypatch.setattr(get_settings(), "identity_profile", "isaac")
 
     def test_get_soul_returns_dict(self) -> None:
         from isaac.identity.soul import get_soul
@@ -58,3 +66,21 @@ class TestSoulModule:
 
         soul = load_soul("/nonexistent/soul.json")
         assert soul["name"] == "I.S.A.A.C."
+
+
+def test_identity_prompt_cache_separates_profiles(monkeypatch) -> None:
+    from isaac.identity.soul import get_soul, soul_system_prompt
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "identity_profile", "isaac")
+    original = soul_system_prompt()
+    monkeypatch.setattr(settings, "identity_profile", "selene")
+    assert get_soul()["name"] == "SELENE"
+    prompt = soul_system_prompt()
+    assert "You are SELENE." in prompt
+    assert "Always speak to the user in English" in prompt
+    assert "Marcos" in prompt
+    assert "I.S.A.A.C." not in prompt
+    monkeypatch.setattr(settings, "identity_profile", "isaac")
+    assert soul_system_prompt() == original
+    assert get_soul()["name"] == "I.S.A.A.C."

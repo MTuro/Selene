@@ -1,7 +1,7 @@
 """Text-to-Speech Manager with Provider Matrix.
 
-Supports multiple backends: edge-tts (default), OpenAI, ElevenLabs, Piper,
-MiniMax, Mistral, Gemini, NeuTTS, and KittenTTS.
+Supports Edge (default), OpenAI, ElevenLabs, and Piper.
+Modified for SELENE to configure voice and select the playback provider.
 """
 
 from __future__ import annotations
@@ -14,8 +14,9 @@ import os
 import tempfile
 import wave
 from abc import ABC, abstractmethod
+from importlib import import_module
 from pathlib import Path
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class TTSProvider(ABC):
 
     audio_format: ClassVar[str] = "mp3"
     supported_formats: ClassVar[frozenset[str]] = frozenset({"mp3"})
+    dependency: ClassVar[str]
 
     @abstractmethod
     async def synthesize(self, text: str, output_path: Path) -> Path:
@@ -85,19 +87,27 @@ class TTSProvider(ABC):
 class EdgeTTSProvider(TTSProvider):
     """Free, streaming TTS using edge-tts."""
 
+    dependency = "edge_tts"
+
+    def __init__(self, voice: str | None = None) -> None:
+        from isaac.config.settings import get_settings
+
+        self.voice = voice if voice is not None else get_settings().voice_tts_edge_voice
+
     async def synthesize(self, text: str, output_path: Path) -> Path:
         try:
             import edge_tts
         except ImportError as err:
             raise RuntimeError("edge-tts not installed. Run `pip install edge-tts`.") from err
-        communicate = edge_tts.Communicate(text, "en-US-GuyNeural")
-        await cast(Any, communicate.save(output_path))
+        communicate = edge_tts.Communicate(text, self.voice)
+        await communicate.save(str(output_path))
         return output_path
 
 
 class OpenAIProvider(TTSProvider):
     """OpenAI TTS API."""
 
+    dependency = "openai"
     supported_formats = frozenset({"mp3", "opus", "aac", "flac", "wav", "pcm"})
 
     async def synthesize(self, text: str, output_path: Path) -> Path:
@@ -127,6 +137,7 @@ class OpenAIProvider(TTSProvider):
 class ElevenLabsProvider(TTSProvider):
     """ElevenLabs TTS API."""
 
+    dependency = "httpx"
     supported_formats = frozenset({"mp3", "wav"})
 
     async def synthesize(self, text: str, output_path: Path) -> Path:
@@ -187,6 +198,7 @@ def _piper_voice_path(configured_voice: str, isaac_home: Path) -> Path:
 class PiperProvider(TTSProvider):
     """Local Piper TTS."""
 
+    dependency = "piper"
     audio_format = "wav"
     supported_formats = frozenset({"wav"})
 
@@ -226,14 +238,16 @@ class TTSManager:
     }
 
     def __init__(self) -> None:
-        self._current_provider_name = "edge"
-        self._provider: TTSProvider = self.PROVIDERS[self._current_provider_name]()
+        from isaac.config.settings import get_settings
+
+        self.set_provider(get_settings().voice_tts_provider)
 
     def _load(self) -> None:
         """Compatibility hook; providers initialize on first synthesis."""
         return None
 
-    def set_provider(self, name: str):
+    def set_provider(self, name: str) -> None:
+        """Select the backend used for synthesis."""
         if name not in self.PROVIDERS:
             supported = ", ".join(sorted(self.PROVIDERS))
             raise ValueError(f"Unsupported TTS provider: {name}. Supported: {supported}.")
@@ -241,29 +255,38 @@ class TTSManager:
         self._current_provider_name = name
         logger.info("TTS provider switched to %s", name)
 
+    def is_available(self) -> bool:
+        """Check whether the selected backend can be imported."""
+        try:
+            import_module(self._provider.dependency)
+        except (ImportError, OSError):
+            return False
+        return True
+
     async def synthesize(self, text: str, output_path: Path | None = None) -> Path:
+        provider = self._provider
         requested = Path(output_path) if output_path is not None else None
         audio_format = (
             requested.suffix.lstrip(".").lower()
             if requested is not None and requested.suffix
-            else self._provider.audio_format
+            else provider.audio_format
         )
 
-        if requested is not None and audio_format in self._provider.supported_formats:
-            return await self._provider.synthesize(text, requested)
+        if requested is not None and audio_format in provider.supported_formats:
+            return await provider.synthesize(text, requested)
 
         target = requested if requested is not None else _reserve_temp(f".{audio_format}")
-        if audio_format == self._provider.audio_format:
-            return await self._provider.synthesize(text, target)
+        if audio_format == provider.audio_format:
+            return await provider.synthesize(text, target)
         if audio_format != "wav":
             raise RuntimeError(
                 f"The {self._current_provider_name} TTS provider cannot produce "
                 f".{audio_format} audio."
             )
 
-        intermediate = _reserve_temp(f".{self._provider.audio_format}")
+        intermediate = _reserve_temp(f".{provider.audio_format}")
         try:
-            produced = await self._provider.synthesize(text, intermediate)
+            produced = await provider.synthesize(text, intermediate)
             return _convert_to_wav(produced, target)
         finally:
             _discard_temp(intermediate)
@@ -272,9 +295,10 @@ class TTSManager:
         """Synthesize speech and play it through the default output device."""
         from isaac.multimodal.voice.audio_io import play_wav
 
-        path = await self.synthesize(text, output_path=_reserve_temp(".wav"))
+        path = _reserve_temp(".wav")
         try:
-            await asyncio.to_thread(play_wav, str(path))
+            produced = await self.synthesize(text, output_path=path)
+            await asyncio.to_thread(play_wav, str(produced))
         finally:
             _discard_temp(path)
 
@@ -307,13 +331,7 @@ def get_tts() -> TTSManager:
 
 
 def is_tts_available() -> bool:
-    """True when the voice subsystem is enabled and edge-tts is installed."""
+    """True when voice is enabled and the selected TTS dependency can load."""
     from isaac.config.settings import get_settings
 
-    if not get_settings().voice_enabled:
-        return False
-    try:
-        import edge_tts  # noqa: F401
-    except ImportError:
-        return False
-    return True
+    return get_settings().voice_enabled and get_tts().is_available()

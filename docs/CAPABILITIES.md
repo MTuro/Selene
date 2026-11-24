@@ -1,9 +1,11 @@
 # Core Capabilities
 
+This page includes the SELENE conversational voice settings.
+
 I.S.A.A.C. is designed as a modular framework where capabilities are decoupled from the specific LLM driving the loop.
 
 ## 1. Multi-modal (Vision/Voice)
-- **Voice**: Integration of `faster-whisper` for high-speed speech-to-text and a flexible TTS backend (edge-tts, OpenAI, ElevenLabs, pyttsx3 or Kokoro). Supports "hands-free" mode via VAD (Voice Activity Detection).
+- **Voice**: `isaac voice` transcribes Portuguese or English locally with `faster-whisper` and the SELENE identity replies in English with Thalita via Edge. Piper, OpenAI, and ElevenLabs are also selectable. Hands-free mode uses WebRTC VAD when installed and an energy gate otherwise. The standalone `isaac speak` command supports pyttsx3, Kokoro, and OpenAI.
 - **Vision**: Integration of VLMs (Vision-Language Models) via Ollama. The agent can capture the screen or analyze local images to derive spatial and textual context.
 
 ## 2. MCP Client / Plugin SDK

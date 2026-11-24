@@ -46,13 +46,16 @@ _IDENTITY_QUERY = re.compile(
     r"""(
         who\s+are\s+you |
         what\s+are\s+you |
-        what(?:'s|\s+is)\s+your\s+name |
+        what(?:['’]s|\s+is)\s+your\s+name |
+        what\s+should\s+i\s+call\s+you |
         introduce\s+yourself |
         tell\s+me\s+about\s+yourself |
         what\s+can\s+you\s+do |
         o\s+que\s+você\s+é |
         quem\s+é\s+você |
-        qual\s+é\s+o\s+seu\s+nome |
+        qual\s+[eé]\s+o\s+seu\s+nome |
+        como\s+(?:voc[eê]\s+)?se\s+chama |
+        como\s+[eé]\s+seu\s+nome |
         como\s+você\s+funciona
     )""",
     re.IGNORECASE | re.VERBOSE,
@@ -224,7 +227,7 @@ def classify_hypothesis(text: str, task_mode: TaskMode) -> str:
         return "User is initiating a casual conversation. Respond with a warm, brief reply."
 
     if _IDENTITY_QUERY.search(stripped):
-        return "User wants to know who I.S.A.A.C. is. Introduce myself and my capabilities."
+        return "User asks about the assistant's identity. Answer using the active identity."
 
     if _SIMPLE_QUESTION.match(stripped):
         return f"User asks a knowledge question: '{stripped[:80]}'. Answer directly and concisely."

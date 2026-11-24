@@ -1,4 +1,4 @@
-"""Conversation context survives the graph's direct-response shortcut."""
+"""Direct prompt regression tests, extended for the SELENE voice language."""
 
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -13,3 +13,10 @@ def test_direct_prompt_includes_prior_exchange() -> None:
         "Hello Ada",
         "What is my name?",
     ]
+
+
+def test_direct_prompt_uses_the_voice_sessions_language() -> None:
+    prompt = _build_direct_prompt(
+        "What is the capital of Brazil?", "", response_language="English only"
+    )
+    assert "Reply in English only." in prompt[0].content

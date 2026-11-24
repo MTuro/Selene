@@ -9,6 +9,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — 2026-11-20
 
+- The SELENE identity accepts Portuguese and English input, replies in English
+  with Thalita, and preserves the original I.S.A.A.C. profile. The voice REPL
+  shows the raw transcript and continues in text when speech fails.
+- SELENE updates Edge TTS and the WebRTC VAD package so the voice extra works
+  in a clean virtual environment.
+
 ## [1.6.3] — 2026-11-20 — Code quality fixes & documentation
 
 ### Fixed

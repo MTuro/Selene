@@ -1,12 +1,16 @@
 """Speech-to-Text (STT) management.
 
-Priority chain: local faster-whisper (when installed) followed by cloud
-providers that actually have a configured credential.
+Modified for SELENE to make conversational STT local by default.
 """
+
+from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from isaac.config.settings import Settings
 
 try:
     from faster_whisper import WhisperModel
@@ -31,6 +35,7 @@ class LocalWhisperProvider:
         device: str = "auto",
         compute_type: str = "int8",
         language: str = "",
+        hotwords: str = "",
     ):
         if WhisperModel is None:
             raise ImportError(
@@ -40,10 +45,14 @@ class LocalWhisperProvider:
         logger.info("Initializing local Whisper model (%s) on %s...", model_size, device)
         self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
         self.language = language or None
+        self.hotwords = hotwords
 
     def transcribe(self, audio_path: Path) -> str:
-        segments, _ = self.model.transcribe(str(audio_path), language=self.language, beam_size=5)
-        return " ".join([segment.text for segment in segments]).strip()
+        options = {"hotwords": self.hotwords} if self.hotwords else {}
+        segments, _ = self.model.transcribe(
+            str(audio_path), language=self.language, beam_size=5, **options
+        )
+        return " ".join(segment.text for segment in segments).strip()
 
 
 class OpenAISTTProvider:
@@ -73,8 +82,9 @@ class STTManager:
         device: str = "auto",
         compute_type: str = "int8",
         language: str = "",
+        hotwords: str = "",
     ):
-        self.cloud_priority = cloud_priority or ["openai"]
+        self.cloud_priority = ["openai"] if cloud_priority is None else cloud_priority
         self.providers: list[STTProvider] = []
 
         try:
@@ -84,6 +94,7 @@ class STTManager:
                     device=device,
                     compute_type=compute_type,
                     language=language,
+                    hotwords=hotwords,
                 )
             )
         except Exception as exc:
@@ -124,23 +135,27 @@ SpeechToText = STTManager
 
 
 _stt_manager: STTManager | None = None
+_stt_settings: Settings | None = None
 
 
 def get_stt() -> STTManager:
     """Singleton-like getter for STT manager, honoring the voice settings."""
-    global _stt_manager
-    if _stt_manager is None:
-        from isaac.config.settings import get_settings
+    from isaac.config.settings import get_settings
 
-        settings = get_settings()
-        if not settings.voice_enabled:
-            raise RuntimeError("Voice subsystem is disabled (ISAAC_VOICE_ENABLED=false).")
+    global _stt_manager, _stt_settings
+    settings = get_settings()
+    if not settings.voice_enabled:
+        raise RuntimeError("Voice subsystem is disabled (ISAAC_VOICE_ENABLED=false).")
+    if _stt_manager is None or _stt_settings is not settings:
         _stt_manager = STTManager(
             local_model_size=settings.voice_stt_model,
+            cloud_priority=None if settings.voice_stt_allow_cloud else [],
             device=settings.voice_device,
             compute_type=settings.voice_stt_compute_type,
             language=settings.voice_stt_language,
+            hotwords="Selene" if settings.identity_profile == "selene" else "",
         )
+        _stt_settings = settings
     return _stt_manager
 
 

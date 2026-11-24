@@ -48,6 +48,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from isaac.agents.agent_loop import ApprovalCallback, StopCallback, _active_boundary
+from isaac.identity.soul import assistant_name
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,7 @@ class Specialist:
         """Compose the full system prompt: persona + role + operating rules."""
         preamble = self._persona if self._persona is not None else _soul_preamble()
         identity = (
-            f"You are acting as the **{self.title}** on the I.S.A.A.C. team — "
+            f"You are acting as the **{self.title}** on the {assistant_name()} team — "
             f"your specialism is {self.domain}."
         )
         return (

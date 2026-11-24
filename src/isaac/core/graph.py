@@ -50,6 +50,7 @@ from isaac.core.transitions import (
     after_reflection,
     after_synthesis,
 )
+from isaac.identity.soul import assistant_name, enforce_speaking_identity, get_soul
 from isaac.memory.context_manager import compress_messages
 from isaac.nodes.clarification import clarification_node
 from isaac.nodes.computer_use import computer_use_node, shutdown_ui_executor
@@ -311,7 +312,13 @@ def build_and_run() -> int:
 
     state["ui_approval_callback"] = _approve_ui_action
 
-    print("I.S.A.A.C. — Intelligent System for Autonomous Action and Cognition")
+    soul = get_soul()
+    title = (
+        soul["name"]
+        if soul["name"] == soul["full_name"]
+        else f"{soul['name']} — {soul['full_name']}"
+    )
+    print(title)
     print("Type your task below.  Press Ctrl+C to exit.\n")
 
     try:
@@ -377,7 +384,8 @@ def build_and_run() -> int:
                 if not is_direct:
                     for msg in msgs:
                         if isinstance(msg, AIMessage):
-                            print(f"\n\033[1;36m[I.S.A.A.C.]\033[0m {msg.content}\n")
+                            reply = enforce_speaking_identity(str(msg.content))
+                            print(f"\n\033[1;36m[{assistant_name()}]\033[0m {reply}\n")
 
                 # Print execution summary
                 logs = result.get("execution_logs", [])

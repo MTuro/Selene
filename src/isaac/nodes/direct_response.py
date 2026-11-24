@@ -7,6 +7,8 @@ Explorer, Planner, Synthesis, Sandbox, and Reflection entirely.
 
 This is the single most impactful optimisation: it reduces a 6+ LLM call
 pipeline to a **single** LLM call with streaming output.
+
+Modified for SELENE to use the voice session's requested reply language.
 """
 
 from __future__ import annotations
@@ -19,12 +21,17 @@ from typing import Any
 from langchain_core.messages import AIMessage, SystemMessage
 
 from isaac.core.state import IsaacState
+from isaac.identity.address import selene_identity_reply
+from isaac.identity.soul import assistant_name, enforce_speaking_identity, uses_selene_identity
 
 logger = logging.getLogger(__name__)
 
 
 def _build_direct_prompt(
-    user_text: str, hypothesis: str, history: list[Any] | None = None
+    user_text: str,
+    hypothesis: str,
+    history: list[Any] | None = None,
+    response_language: str = "",
 ) -> list[Any]:
     """Build a minimal prompt for direct conversational response."""
     from isaac.identity.soul import soul_system_prompt
@@ -42,6 +49,8 @@ def _build_direct_prompt(
         "If they ask a knowledge question, answer it directly.  "
         "Keep responses under 200 words unless the topic demands more."
     )
+    if response_language:
+        system_content += f" Reply in {response_language}."
     from langchain_core.messages import HumanMessage
 
     messages: list[Any] = [SystemMessage(content=system_content)]
@@ -62,8 +71,6 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
     """
     from isaac.llm.provider import get_direct_response_llm
 
-    llm = get_direct_response_llm()
-
     # Extract user text
     messages = state.get("messages", [])
     user_text = ""
@@ -75,9 +82,6 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
             user_text = content if isinstance(content, str) else str(content)
             break
 
-    hypothesis = state.get("hypothesis", "")
-    prompt = _build_direct_prompt(user_text, hypothesis, messages[:-1])
-
     # Resolve the active UI (if running inside the Rich REPL)
     ui = None
     try:
@@ -87,30 +91,52 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
     except ImportError:
         pass
 
+    selene = uses_selene_identity()
+    show = not state.get("voice_session", False)
+    name = assistant_name()
+    if answer := selene_identity_reply(user_text):
+        if show:
+            if ui is not None:
+                ui.start_stream()
+                ui.stream_token(answer)
+            else:
+                print(f"\n[{name}] {answer}\n")
+        return {"messages": [AIMessage(content=answer)], "current_phase": "direct_response"}
+
+    llm = get_direct_response_llm()
+    prompt = _build_direct_prompt(
+        user_text, state.get("hypothesis", ""), messages[:-1], state.get("response_language", "")
+    )
+
     # Try streaming for instant feedback
     full_response = ""
     try:
-        if ui is not None:
+        if show and ui is not None:
             ui.start_stream()
-        else:
-            sys.stdout.write("\n[I.S.A.A.C.] ")
+        elif show:
+            sys.stdout.write(f"\n[{name}] ")
             sys.stdout.flush()
 
         for chunk in llm.stream(prompt):
             raw_token = chunk.content if hasattr(chunk, "content") else str(chunk)
             token = raw_token if isinstance(raw_token, str) else str(raw_token)
             if token:
-                if ui is not None:
+                if show and not selene and ui is not None:
                     ui.stream_token(token)
-                else:
+                elif show and not selene:
                     sys.stdout.write(token)
                     sys.stdout.flush()
                 full_response += token
 
-        if ui is None:
-            sys.stdout.write("\n\n")
-            sys.stdout.flush()
-        # Note: end_stream is called by the REPL after the graph finishes
+        full_response = enforce_speaking_identity(full_response)
+        if show:
+            if ui is None:
+                if selene:
+                    sys.stdout.write(full_response)
+                sys.stdout.write("\n\n")
+                sys.stdout.flush()
+            elif selene:
+                ui.stream_token(full_response)
 
     except (AttributeError, TypeError):
         # Fallback: non-streaming
@@ -118,11 +144,13 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
         full_response = (
             response.content if isinstance(response.content, str) else str(response.content)
         )
-        if ui is not None:
-            ui.start_stream()
-            ui.stream_token(full_response)
-        else:
-            print(f"\n[I.S.A.A.C.] {full_response}\n")
+        full_response = enforce_speaking_identity(full_response)
+        if show:
+            if ui is not None:
+                ui.start_stream()
+                ui.stream_token(full_response)
+            else:
+                print(f"\n[{name}] {full_response}\n")
 
     logger.info("DirectResponse: %d chars (fast-path).", len(full_response))
 

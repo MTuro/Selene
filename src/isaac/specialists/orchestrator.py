@@ -808,7 +808,9 @@ class Orchestrator:
         try:
             content = self._invoke(system, human)
             if content and content.strip():
-                return content.strip()
+                from isaac.identity.soul import enforce_speaking_identity
+
+                return enforce_speaking_identity(content.strip())
         except _RunStopped:
             raise
         except Exception:  # pragma: no cover - defensive
@@ -830,14 +832,14 @@ class Orchestrator:
         Returns:
             The model's ``.content`` as a string.
         """
-        from langchain_core.messages import HumanMessage, SystemMessage
+        from langchain_core.messages import HumanMessage
+
+        from isaac.llm.prompts import _sys
 
         boundary = _active_boundary.get()
         if boundary is not None:
             boundary.check()
-        response = self._manager().invoke(
-            [SystemMessage(content=system), HumanMessage(content=human)]
-        )
+        response = self._manager().invoke([_sys(system), HumanMessage(content=human)])
         if boundary is not None:
             boundary.check()
         content = getattr(response, "content", response)
