@@ -679,7 +679,7 @@ if TYPE_CHECKING or typer is not None:
     @app.command()
     def voice(
         hands_free: bool = typer.Option(
-            False, "--hands-free", "-f", help="Continuous listening mode."
+            False, "--hands-free", "-f", help="Continuous listening with voice interruption."
         ),
         verbose: bool = typer.Option(False, "--verbose", "-v"),
     ) -> None:

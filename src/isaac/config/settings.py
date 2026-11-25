@@ -339,6 +339,15 @@ class Settings(BaseSettings):
     voice_stt_compute_type: str = "int8"
     voice_stt_allow_cloud: bool = False
     """Allow credential-backed STT fallback for the conversational voice subsystem."""
+    voice_vad_mode: int = Field(default=2, ge=0, le=3)
+    voice_vad_energy: float = Field(default=0.005, ge=0.0001, le=1)
+    voice_vad_onset_frames: int = Field(default=5, ge=1, le=20)
+    voice_vad_silence_s: float = Field(default=0.55, ge=0.12, le=3)
+    voice_barge_in_energy: float = Field(default=0.012, ge=0.0001, le=1)
+    voice_barge_in_onset_frames: int = Field(default=4, ge=1, le=20)
+    voice_echo_tail_s: float = Field(default=0.15, ge=0, le=2)
+    voice_llm_token_timeout_s: float = Field(default=60, ge=1, le=300)
+    voice_tts_segment_timeout_s: float = Field(default=15, ge=1, le=120)
     voice_tts_provider: Literal["edge", "piper", "openai", "elevenlabs"] = "edge"
     voice_tts_edge_voice: str = "pt-BR-ThalitaMultilingualNeural"
     """Default Microsoft Edge voice."""

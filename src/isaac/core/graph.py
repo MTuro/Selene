@@ -25,9 +25,12 @@ from __future__ import annotations
 import contextlib
 import logging
 import sys
+from collections.abc import Callable
+from functools import wraps
 from typing import Any, cast
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, StateGraph
 
 from isaac.core.state import IsaacState, make_initial_state
@@ -50,12 +53,13 @@ from isaac.core.transitions import (
     after_reflection,
     after_synthesis,
 )
+from isaac.core.voice_turn import check_voice_turn
 from isaac.identity.soul import assistant_name, enforce_speaking_identity, get_soul
 from isaac.memory.context_manager import compress_messages
 from isaac.nodes.clarification import clarification_node
 from isaac.nodes.computer_use import computer_use_node, shutdown_ui_executor
 from isaac.nodes.connector_execution import connector_execution_node
-from isaac.nodes.direct_response import direct_response_node
+from isaac.nodes.direct_response import async_direct_response_node, direct_response_node
 from isaac.nodes.explorer import explorer_node
 from isaac.nodes.guard import guard_node
 from isaac.nodes.meta_learner import meta_learner_node
@@ -108,22 +112,39 @@ def build_graph() -> Any:
     # success metrics flow into the self-improvement engine.
     from isaac.core.telemetry import track_node
 
+    def add_node(name: str, node: Callable[[IsaacState], dict[str, Any]]) -> None:
+        tracked = track_node(name)(node)
+
+        @wraps(node)
+        def run(state: IsaacState) -> dict[str, Any]:
+            # A running node owns its side effects. Interruption applies at the next entry.
+            check_voice_turn()
+            return tracked(state)
+
+        graph.add_node(name, run)
+
     # Register nodes (telemetry-wrapped)
-    graph.add_node(_GUARD, track_node(_GUARD)(guard_node))
-    graph.add_node(_MULTIMODAL_INPUT, track_node(_MULTIMODAL_INPUT)(multimodal_input_node))
-    graph.add_node(_PERCEPTION, track_node(_PERCEPTION)(perception_node))
-    graph.add_node(_CLARIFICATION, track_node(_CLARIFICATION)(clarification_node))
-    graph.add_node(_EXPLORER, track_node(_EXPLORER)(explorer_node))
-    graph.add_node(_PLANNER, track_node(_PLANNER)(planner_node))
-    graph.add_node(_PARALLEL_SYNTHESIS, track_node(_PARALLEL_SYNTHESIS)(parallel_synthesis_node))
-    graph.add_node(_SYNTHESIS, track_node(_SYNTHESIS)(synthesis_node))
-    graph.add_node(_SANDBOX, track_node(_SANDBOX)(sandbox_node))
-    graph.add_node(_COMPUTER_USE, track_node(_COMPUTER_USE)(computer_use_node))
-    graph.add_node(_REFLECTION, track_node(_REFLECTION)(reflection_node))
-    graph.add_node(_SKILL_ABSTRACTION, track_node(_SKILL_ABSTRACTION)(skill_abstraction_node))
-    graph.add_node(_META_LEARNER, track_node(_META_LEARNER)(meta_learner_node))
-    graph.add_node(_CONNECTOR_EXEC, track_node(_CONNECTOR_EXEC)(connector_execution_node))
-    graph.add_node(_DIRECT_RESPONSE, track_node(_DIRECT_RESPONSE)(direct_response_node))
+    add_node(_GUARD, guard_node)
+    add_node(_MULTIMODAL_INPUT, multimodal_input_node)
+    add_node(_PERCEPTION, perception_node)
+    add_node(_CLARIFICATION, clarification_node)
+    add_node(_EXPLORER, explorer_node)
+    add_node(_PLANNER, planner_node)
+    add_node(_PARALLEL_SYNTHESIS, parallel_synthesis_node)
+    add_node(_SYNTHESIS, synthesis_node)
+    add_node(_SANDBOX, sandbox_node)
+    add_node(_COMPUTER_USE, computer_use_node)
+    add_node(_REFLECTION, reflection_node)
+    add_node(_SKILL_ABSTRACTION, skill_abstraction_node)
+    add_node(_META_LEARNER, meta_learner_node)
+    add_node(_CONNECTOR_EXEC, connector_execution_node)
+    graph.add_node(
+        _DIRECT_RESPONSE,
+        RunnableLambda(
+            track_node(_DIRECT_RESPONSE)(direct_response_node),
+            afunc=track_node(_DIRECT_RESPONSE)(async_direct_response_node),
+        ),
+    )
 
     # Entry: Guard → {MultimodalInput | Perception | END}
     graph.set_entry_point(_GUARD)

@@ -139,6 +139,7 @@ def build(
     max_tokens: int | None = None,
     vision: bool = False,
     check: bool = False,
+    timeout: float | None = None,
     **extra: Any,
 ) -> BaseChatModel:
     """Construct a ChatOllama (or OpenAI-shim) client.
@@ -180,6 +181,8 @@ def build(
         }
         if max_tokens is not None:
             kwargs["num_predict"] = max_tokens
+        if timeout is not None:
+            kwargs["client_kwargs"] = {"timeout": timeout}
         kwargs.update(extra)
         return ChatOllama(**kwargs)
     except ImportError:
@@ -195,6 +198,8 @@ def build(
         if max_tokens is not None:
             kwargs2["max_tokens"] = max_tokens
         kwargs2.update(extra)
+        if timeout is not None:
+            kwargs2.update(timeout=timeout, max_retries=0)
         return ChatOpenAI(**kwargs2)
 
 

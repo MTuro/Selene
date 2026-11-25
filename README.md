@@ -314,16 +314,16 @@ Audio Input (mic) ──► VAD ──► faster-whisper ──► Text
 ```
 
 **Modes:**
-- **Push-to-talk** (`isaac voice`) — manual trigger, single utterance
-- **Hands-free** (`isaac voice --hands-free`) — continuous VAD-driven listening
+- **Push-to-talk** (`isaac voice`) — press Enter and speak.
+- **Hands-free** (`isaac voice --hands-free`) — speak at any time, including during a reply.
 
-For SELENE on Arch, select an installed Ollama model and run
-`isaac voice` from the Hyprland session. Press Enter, speak into the G535,
-and pause. With `ISAAC_IDENTITY_PROFILE=selene`, the assistant identifies as
-SELENE, accepts Portuguese or English locally, and replies in English with
-the `pt-BR-ThalitaMultilingualNeural` voice. Edge requires
-internet and sends the reply text to Microsoft's speech service.
-See the [Arch voice setup](SETUP.md#selene-voice-on-arch-linux-and-hyprland).
+Both modes stream conversational answers sentence by sentence through the
+configured TTS provider. In hands-free mode, start speaking to interrupt audio
+and ask another question. With `ISAAC_IDENTITY_PROFILE=selene`, the terminal
+transcribes Portuguese or English using local faster-whisper and prompts SELENE
+to reply in English with the `pt-BR-ThalitaMultilingualNeural` voice. Edge
+requires internet and sends reply segments to Microsoft's speech service.
+See the [Arch G535 setup and interruption check](SETUP.md#selene-voice-on-arch-linux-and-hyprland).
 
 ### Vision Pipeline
 

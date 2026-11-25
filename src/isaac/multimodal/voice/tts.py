@@ -16,7 +16,10 @@ import wave
 from abc import ABC, abstractmethod
 from importlib import import_module
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -210,11 +213,26 @@ class PiperProvider(TTSProvider):
 
         from isaac.config.settings import settings
 
-        voice = await asyncio.to_thread(
-            PiperVoice.load,
-            str(_piper_voice_path(settings.voice_tts_voice, settings.isaac_home)),
-        )
-        await asyncio.to_thread(self._write_wav, voice, text, output_path)
+        model_path = str(_piper_voice_path(settings.voice_tts_voice, settings.isaac_home))
+
+        def render() -> None:
+            self._write_wav(PiperVoice.load(model_path), text, output_path)
+
+        render_task = asyncio.create_task(asyncio.to_thread(render))
+        try:
+            await asyncio.shield(render_task)
+        except asyncio.CancelledError:
+            # The native renderer cannot be interrupted. Join it before its file is removed.
+            while not render_task.done():
+                try:
+                    await asyncio.shield(render_task)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if not render_task.cancelled():
+                render_task.exception()
+            raise
         return output_path
 
     @staticmethod
@@ -290,6 +308,15 @@ class TTSManager:
             return _convert_to_wav(produced, target)
         finally:
             _discard_temp(intermediate)
+
+    async def synthesize_pcm(self, text: str) -> tuple[np.ndarray, int]:
+        """Synthesize one segment and decode it for cancellable PortAudio playback."""
+        import soundfile as sf
+
+        with tempfile.TemporaryDirectory(prefix="isaac-voice-tts-") as directory:
+            path = Path(directory) / f"segment.{self._provider.audio_format}"
+            produced = await self.synthesize(text, output_path=path)
+            return sf.read(produced, dtype="float32", always_2d=True)
 
     async def speak(self, text: str) -> None:
         """Synthesize speech and play it through the default output device."""

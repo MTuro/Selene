@@ -363,21 +363,95 @@ ISAAC_VOICE_TTS_PROVIDER=edge
 ISAAC_VOICE_TTS_EDGE_VOICE=pt-BR-ThalitaMultilingualNeural
 ```
 
-Run `isaac voice`. Press Enter, speak, and pause to end the turn. Enter `/q`
-at the prompt to quit. On first use, faster-whisper may fetch the small
-`base` model if it is absent from the local cache. Ollama uses the installed
-model configured above.
+Run `isaac voice --hands-free` for continuous listening. Start speaking to
+interrupt a reply and ask your next question. “Stop” by itself ends the current
+reply and leaves the microphone listening. Run `isaac voice` for push-to-talk,
+then press Enter before each utterance. Say “quit” or press Ctrl+C to exit.
+Push-to-talk also accepts `/q` at the prompt.
 
-Speak in Portuguese or English. SELENE replies in English with Thalita and
-uses Marcos when appropriate. “Selene” is an optional form of address after
-recording starts. The REPL shows the original transcript before any correction
-to a name at the start of the utterance. Select `ISAAC_IDENTITY_PROFILE=isaac`
-for the original identity and its optional `ISAAC_SOUL_PATH` custom persona.
+On first use, faster-whisper may download the `base` model if it is absent
+from the local cache. Terminal voice transcribes locally. Speak in Portuguese
+or English. SELENE is prompted to reply in English with Thalita and uses
+Marcos when appropriate. “Selene” is an optional form of address. The terminal
+shows the original transcript before normalizing the spoken name.
 
-Edge TTS requires internet and sends the reply text to Microsoft's service.
-Run `edge-tts --list-voices` to check the current catalog. If synthesis fails,
-the REPL keeps the text reply visible and accepts another turn. For local
-speech output, select `piper` and point `ISAAC_VOICE_TTS_VOICE` to a Piper model.
+Edge TTS requires internet and sends each reply segment to Microsoft's service.
+If synthesis or playback fails, the terminal keeps the text reply visible and
+accepts another turn. For local speech output, select `piper` and point
+`ISAAC_VOICE_TTS_VOICE` to a Piper model.
+
+##### Verify barge-in on a Logitech G535
+
+1. Plug in the USB receiver, wear the headset, lower the boom mic, and use
+   `wpctl status` to find the G535 input source and output sink. If needed,
+   run `wpctl set-default <id>` for each. Select the physical microphone source
+   for the input. Confirm the PortAudio defaults with
+   `python -m sounddevice`. On Arch the ALSA `default` device can route through
+   PipeWire with `pipewire-alsa`.
+2. Run `isaac voice --hands-free 2>selene-voice.log` and ask “Selene, explain how
+   Docker containers work.” Listen for SELENE to begin before the complete reply
+   appears in the terminal. On a fast local model, the Edge network request
+   can take longer than the entire generation. Compare `first_tts_segment`
+   with `reply_text_ready` in the log to check whether synthesis and generation
+   overlapped.
+3. While SELENE is still speaking, say “Selene, stop. What is Kubernetes?”
+   The Docker audio should cut off once your speech is confirmed. Pause for
+   transcription. The next audio should answer the Kubernetes question, with
+   no later fragments of the Docker reply. Repeat several times, including during
+   the first sentence and while a subsequent segment is playing.
+4. Let several replies finish while staying quiet. Check that SELENE never
+   transcribes her own audio during the run. Use your normal headset volume
+   and microphone gain. Repeat with quiet and normal speaking voices to verify
+   that you can still interrupt.
+5. While idle, unplug and reconnect the receiver. Confirm that hands-free mode
+   resumes capture and answers another question. If PipeWire changes its defaults
+   after reconnecting, select the G535 again and relaunch voice mode.
+
+##### Hands-free sensitivity and timeouts
+
+Each VAD frame is 30 ms. Energy thresholds use normalized microphone RMS.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `ISAAC_VOICE_VAD_MODE` | `2` | WebRTC aggressiveness, from 0 to 3. |
+| `ISAAC_VOICE_VAD_ENERGY` | `0.005` | Minimum RMS for speech in quiet. |
+| `ISAAC_VOICE_VAD_ONSET_FRAMES` | `5` | Consecutive speech frames required in quiet (150 ms). |
+| `ISAAC_VOICE_VAD_SILENCE_S` | `0.55` | Pause that ends an utterance. |
+| `ISAAC_VOICE_BARGE_IN_ENERGY` | `0.012` | Minimum RMS during playback and its tail. The quiet threshold remains a floor. |
+| `ISAAC_VOICE_BARGE_IN_ONSET_FRAMES` | `4` | Speech frames required during playback and its tail, with one missed frame allowed (120–150 ms). |
+| `ISAAC_VOICE_ECHO_TAIL_S` | `0.15` | Time after playback that the stricter settings remain active. |
+| `ISAAC_VOICE_LLM_TOKEN_TIMEOUT_S` | `60` | Max wait for the first or next direct-response model chunk. Also used as the Ollama HTTP timeout in voice guard and perception calls. |
+| `ISAAC_VOICE_TTS_SEGMENT_TIMEOUT_S` | `15` | Max wait for synthesis of each segment. |
+
+If playback triggers interruptions, lower headphone volume or mic gain first.
+Then raise `ISAAC_VOICE_BARGE_IN_ENERGY` or
+`ISAAC_VOICE_BARGE_IN_ONSET_FRAMES` and repeat the quiet test. If your speech
+misses interruptions, lower one value at a time and repeat both tests. Install
+the `[voice]` extra to use WebRTC VAD. The energy fallback can react to sustained
+non-speech sounds. The playback gate relies on headset isolation and may miss
+quiet speech or trigger on loud leakage. For open speakers, PipeWire can supply
+an echo-canceled virtual source and sink. Route both capture and playback
+through that pair so PipeWire has a playback reference.
+[PipeWire echo cancellation](https://docs.pipewire.org/page_module_echo_cancel.html)
+
+The direct-response route streams generated sentences. Routes that supply a final
+graph message play it after the graph finishes. A slow model or Edge connection
+can leave gaps between sentences. Barge-in stops playback and invalidates the
+previous turn immediately. If a graph node is already executing a tool, it
+finishes under its existing policy before the latest captured request is
+processed. The microphone stays active and keeps only the newest pending
+utterance.
+
+The runtime logs JSON metric payloads on stderr keyed by `turn_id`. The
+`speech_endpoint` interval starts at the last voiced frame.
+`stt_transcription` measures local STT, including WAV preparation.
+`first_llm_token`, `first_tts_segment`, `reply_text_ready`, and
+`first_spoken_audio` start when the graph is submitted. They mark the first
+answer token, the first synthesis request, the complete answer reaching the
+terminal, and the first samples handed to PortAudio, respectively.
+`barge_in_cancel` measures from confirmed speech onset to playback abort, or
+to turn invalidation when audio is idle. These timings exclude residual
+hardware buffering. The metrics contain no audio or transcripts.
 
 ### Vision one-shot
 

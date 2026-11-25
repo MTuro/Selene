@@ -18,9 +18,11 @@ It is fail-safe — telemetry errors are swallowed so they never crash the graph
 from __future__ import annotations
 
 import functools
+import inspect
 import logging
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any, ParamSpec, TypeVar
 
 logger = logging.getLogger(__name__)
@@ -57,16 +59,19 @@ def track_node(node_name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Wrap a node function with timing + success tracking."""
 
     def decorator(func: Callable[P, R]) -> Callable[P, R]:
-        @functools.wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        @contextmanager
+        def observe(args: tuple[Any, ...]) -> Iterator[Callable[[Any], None]]:
             start = time.monotonic()
             err = ""
             success: bool | None = None
             state = args[0] if args and isinstance(args[0], Mapping) else {}
-            try:
-                result = func(*args, **kwargs)
+
+            def record_result(result: Any) -> None:
+                nonlocal success
                 success = observed_success(result)
-                return result
+
+            try:
+                yield record_result
             except Exception as exc:
                 success = False
                 err = f"{type(exc).__name__}: {exc}"
@@ -88,6 +93,24 @@ def track_node(node_name: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
                     )
                 except Exception:  # never let telemetry break the graph
                     pass
+
+        if inspect.iscoroutinefunction(func):
+
+            @functools.wraps(func)
+            async def async_wrapper(*args: P.args, **kwargs: P.kwargs) -> Any:
+                with observe(args) as record:
+                    result = await func(*args, **kwargs)
+                    record(result)
+                    return result
+
+            return async_wrapper  # type: ignore[return-value]
+
+        @functools.wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            with observe(args) as record:
+                result = func(*args, **kwargs)
+                record(result)
+                return result
 
         return wrapper
 

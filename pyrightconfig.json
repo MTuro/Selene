@@ -3,6 +3,7 @@
   "venv": ".venv",
   "pythonVersion": "3.12",
   "include": ["src", "tests"],
+  "extraPaths": ["src"],
   "exclude": ["**/__pycache__"],
   "typeCheckingMode": "basic",
   "reportMissingImports": "none",
