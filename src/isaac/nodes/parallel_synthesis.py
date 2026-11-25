@@ -104,7 +104,9 @@ def parallel_synthesis_node(state: IsaacState) -> dict[str, Any]:
         summary = f"[{step.id}] ({agent_result.get('role', '?')}) {result_text[:500]}"
         if error:
             summary += f"\n  ERROR: {error}"
-        messages.append(AIMessage(content=summary))
+        from isaac.identity.soul import enforce_speaking_identity
+
+        messages.append(AIMessage(content=enforce_speaking_identity(summary)))
 
     return {
         "plan": updated_plan,

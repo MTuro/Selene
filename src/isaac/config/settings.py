@@ -10,6 +10,7 @@ are opt-in via ``ISAAC_LLM_PROVIDER`` plus the matching API key, never a
 silent fallback.
 """
 
+# Modified for SELENE to configure local transcription and Edge speech.
 from __future__ import annotations
 
 import os
@@ -331,11 +332,16 @@ class Settings(BaseSettings):
     # ── Voice (STT / TTS) ──────────────────────────────────────────────
     voice_enabled: bool = True
     """Master switch for the voice subsystem."""
-    voice_device: Literal["auto", "cpu", "cuda"] = "auto"
+    voice_device: Literal["auto", "cpu", "cuda"] = "cpu"
     voice_stt_model: str = "base"
     """faster-whisper model size (tiny / base / small / medium / large-v3)."""
-    voice_stt_language: str = ""  # auto-detect
+    voice_stt_language: str = ""  # detect the language separately for each turn
     voice_stt_compute_type: str = "int8"
+    voice_stt_allow_cloud: bool = False
+    """Allow credential-backed STT fallback for the conversational voice subsystem."""
+    voice_tts_provider: Literal["edge", "piper", "openai", "elevenlabs"] = "edge"
+    voice_tts_edge_voice: str = "pt-BR-ThalitaMultilingualNeural"
+    """Default Microsoft Edge voice."""
     voice_tts_voice: str = "en_US-lessac-medium"
     """Piper voice file name (looked up under PIPER_VOICE_DIR or ~/.isaac/voices)."""
     elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"
@@ -371,6 +377,8 @@ class Settings(BaseSettings):
     # ── Identity & Soul ─────────────────────────────────────────────────
     agent_name: str = "I.S.A.A.C."
     """Display name of the agent."""
+    identity_profile: Literal["isaac", "selene"] = "isaac"
+    """Built-in assistant identity. Custom soul JSON remains available."""
     soul_path: str = ""
     """Path to a custom soul JSON file (overrides built-in SOUL)."""
 

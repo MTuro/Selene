@@ -2,7 +2,7 @@
 
 Two modes:
 
-* ``push_to_talk``  — press ENTER, speak, ENTER to stop (or wait for VAD).
+* ``push_to_talk``  — press ENTER, speak, then pause to stop via VAD.
 * ``hands_free``    — listens continuously, transcribes when it detects
                       voice activity, replies, then resumes listening.
 
@@ -12,8 +12,7 @@ Each utterance:
 Optionally streams visible ASCII level-meter feedback so the user knows
 the mic is live.
 
-This module degrades gracefully — if neither STT nor TTS is available,
-``run_voice_repl()`` prints a clear error and exits with code 2.
+Modified for SELENE to keep text replies available when speech output fails.
 """
 
 from __future__ import annotations
@@ -29,10 +28,11 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from isaac.core.graph import build_graph
 from isaac.core.state import make_initial_state
+from isaac.identity.address import normalize_selene_address
+from isaac.identity.soul import assistant_name, enforce_speaking_identity, uses_selene_identity
 from isaac.memory.context_manager import compress_messages
 
 logger = logging.getLogger(__name__)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -82,7 +82,8 @@ def run_voice_repl(hands_free: bool = False) -> int:
     from isaac.multimodal.voice import is_stt_available, is_tts_available
     from isaac.multimodal.voice.audio_io import is_audio_available
 
-    if not get_settings().voice_enabled:
+    settings = get_settings()
+    if not settings.voice_enabled:
         _print("Voice REPL: voice subsystem is disabled (ISAAC_VOICE_ENABLED=false).", color="31")
         return 2
     if not is_audio_available():
@@ -97,7 +98,8 @@ def run_voice_repl(hands_free: bool = False) -> int:
             color="31",
         )
         return 2
-    if not is_tts_available():
+    tts_available = is_tts_available()
+    if not tts_available:
         _print(
             "Voice REPL: warning — no TTS backend; replies will be text-only.",
             color="33",
@@ -114,7 +116,7 @@ def run_voice_repl(hands_free: bool = False) -> int:
     stt = get_stt()
     stt._load()  # eagerly load weights
 
-    tts = get_tts() if is_tts_available() else None
+    tts = get_tts() if tts_available else None
     if tts is not None:
         _print("Loading TTS model...", color="36")
         try:
@@ -134,8 +136,12 @@ def run_voice_repl(hands_free: bool = False) -> int:
     compiled = build_graph()
     state: dict[str, Any] = dict(make_initial_state())
     state["session_id"] = str(uuid.uuid4())
+    state["response_language"] = "English only"
+    state["voice_session"] = True
+    name = assistant_name()
+    selene = uses_selene_identity()
 
-    _print("\n[I.S.A.A.C. — Voice REPL]", color="1;36")
+    _print(f"\n[{name}] Voice REPL", color="1;36")
     if hands_free:
         _print("Hands-free mode. Speak when ready.  Ctrl+C to exit.\n", color="36")
     else:
@@ -146,7 +152,8 @@ def run_voice_repl(hands_free: bool = False) -> int:
         while True:
             if not hands_free:
                 try:
-                    input("[ENTER to record, /q to quit] ")
+                    if input("[ENTER to record, /q to quit] ").strip().lower() == "/q":
+                        break
                 except (EOFError, KeyboardInterrupt):
                     break
 
@@ -205,6 +212,11 @@ def run_voice_repl(hands_free: bool = False) -> int:
                 continue
 
             _print(f">>> {user_text}  ({stt_ms} ms)", color="32")
+            if selene:
+                normalized = normalize_selene_address(user_text)
+                if normalized != user_text:
+                    _print(f"Address recognized: {normalized}", color="36")
+                user_text = normalized
 
             if user_text.strip().lower() in ("/q", "/quit", "/exit", "exit", "quit"):
                 break
@@ -239,14 +251,15 @@ def run_voice_repl(hands_free: bool = False) -> int:
                 if not reply_text:
                     reply_text = "I'm here, but I have nothing to say about that."
 
-                _print(f"[I.S.A.A.C.] {reply_text}\n", color="1;36")
+                reply_text = enforce_speaking_identity(reply_text)
+                _print(f"[{name}] {reply_text}\n", color="1;36")
 
                 # Speak
                 if tts is not None:
                     try:
                         asyncio.run(tts.speak(reply_text))
                     except Exception as exc:
-                        _print(f"TTS playback failed: {exc}", color="33")
+                        _print(f"TTS failed: {exc} — reply available above.", color="33")
 
             except Exception as exc:
                 logger.exception("Voice REPL: graph execution failed.")

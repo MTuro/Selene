@@ -21,6 +21,7 @@ The node uses three signals:
 If any signal is past its threshold the node switches to clarification mode.
 """
 
+# Modified for SELENE to apply the voice session's response language.
 from __future__ import annotations
 
 import logging
@@ -118,21 +119,22 @@ def _formulate_question(state: Mapping[str, Any]) -> str:
             break
 
     try:
-        from langchain_core.messages import SystemMessage
-
+        from isaac.identity.soul import enforce_speaking_identity
+        from isaac.llm.prompts import _sys
         from isaac.llm.provider import get_llm
 
         llm = get_llm("fast")
-        system = SystemMessage(
-            content=(
-                "You are I.S.A.A.C.'s clarification assistant. The user's request "
-                "is ambiguous. Respond with EXACTLY ONE concise clarifying "
-                "question — no preamble, no greeting. Pick the single most "
-                "useful piece of missing information."
-            )
+        instruction = (
+            "Your current task is to clarify the user's request. The request "
+            "is ambiguous. Respond with EXACTLY ONE concise clarifying "
+            "question — no preamble, no greeting. Pick the single most "
+            "useful piece of missing information."
         )
+        if response_language := state.get("response_language"):
+            instruction += f" Reply in {response_language}."
+        system = _sys(instruction)
         resp = llm.invoke([system, HumanMessage(content=last_user)])
-        return str(resp.content).strip().split("\n")[0]
+        return enforce_speaking_identity(str(resp.content).strip().split("\n")[0])
     except Exception as exc:
         logger.debug("LLM clarification failed: %s", exc)
         return "Could you clarify what you'd like me to focus on?"

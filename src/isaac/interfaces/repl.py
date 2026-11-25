@@ -27,6 +27,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from isaac.agents.agent_loop import build_default_agent
 from isaac.core.state import make_initial_state
+from isaac.identity.soul import assistant_name, uses_selene_identity
 from isaac.interfaces.terminal_ui import TerminalUI
 from isaac.memory.context_manager import compress_messages
 
@@ -214,7 +215,12 @@ def _handle_slash_command(cmd: str, ui: TerminalUI, state: dict[str, Any]) -> bo
         return True
 
     if cmd.startswith("/speak"):
-        text = raw[len("/speak") :].strip() or "Ol\u00e1, eu sou I.S.A.A.C."
+        greeting = (
+            f"Hello, I'm {assistant_name()}."
+            if uses_selene_identity()
+            else "Olá, eu sou I.S.A.A.C."
+        )
+        text = raw[len("/speak") :].strip() or greeting
         try:
             import tempfile
 

@@ -8,6 +8,8 @@ The :func:`record_until_silence` helper implements voice-activity-detection
 (VAD) using ``webrtcvad`` when available, falling back to a simple energy
 gate otherwise.  This is what the voice REPL uses for push-to-talk and
 hands-free conversational mode.
+
+Modified for SELENE to reject short microphone transients before speech.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import io
 import logging
 import os
 import wave
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -27,6 +30,8 @@ DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_FRAME_MS = 30
 DEFAULT_SILENCE_TIMEOUT_S = 1.2
 DEFAULT_MAX_RECORD_S = 30.0
+_SPEECH_START_FRAMES = 5
+_PRE_ROLL_FRAMES = 10
 
 
 def is_audio_available() -> bool:
@@ -105,7 +110,7 @@ def record_until_silence(
     energy_threshold: float = 0.005,
     on_chunk: Any = None,
 ) -> np.ndarray:
-    """Record until a stretch of silence is detected.
+    """Record through the first phrase, returning no samples if speech never starts.
 
     Parameters
     ----------
@@ -149,14 +154,14 @@ def record_until_silence(
         return rms < energy_threshold
 
     chunks: list[np.ndarray] = []
+    pre_roll: deque[np.ndarray] = deque(maxlen=_PRE_ROLL_FRAMES)
+    voiced_streak = 0
     silent_streak = 0
-    started_speaking = False
 
     with sd.InputStream(samplerate=sample_rate, channels=1, dtype="float32") as stream:
         for _ in range(max_frames):
             frame, _overflow = stream.read(frame_size)
             frame = frame.flatten()
-            chunks.append(frame)
             silent = _is_silent(frame)
             if on_chunk is not None:
                 try:
@@ -164,19 +169,20 @@ def record_until_silence(
                     on_chunk(rms)
                 except Exception:
                     pass
-            if silent:
-                if started_speaking:
-                    silent_streak += 1
-                    if silent_streak >= silence_frames_needed:
-                        break
-            else:
-                started_speaking = True
-                silent_streak = 0
+            if not chunks:
+                pre_roll.append(frame)
+                voiced_streak = 0 if silent else voiced_streak + 1
+                if voiced_streak >= _SPEECH_START_FRAMES:
+                    chunks.extend(pre_roll)
+                continue
+
+            chunks.append(frame)
+            silent_streak = silent_streak + 1 if silent else 0
+            if silent and silent_streak >= silence_frames_needed:
+                break
 
     if not chunks:
         return np.zeros(0, dtype="float32")
-    import numpy as np
-
     return np.concatenate(chunks).astype("float32")
 
 

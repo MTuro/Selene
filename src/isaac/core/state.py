@@ -7,6 +7,8 @@ fully typed.
 Computer-Use extensions add GUI state, UI actions/results, and a separate
 ``ui_cycle`` counter so the screenshot→action loop can have its own depth
 limit independent of the outer planning iteration.
+
+Modified for SELENE to carry the requested language of a voice session.
 """
 
 from __future__ import annotations
@@ -229,6 +231,8 @@ class IsaacState(TypedDict, total=False):
 
     verified_success: bool | None
     messages: Annotated[list[BaseMessage], add_messages]
+    response_language: str
+    voice_session: bool
     world_model: Annotated[WorldModel, _replace]
     hypothesis: Annotated[str, _replace]
     plan: Annotated[list[PlanStep], _replace]

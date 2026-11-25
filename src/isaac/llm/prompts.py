@@ -64,7 +64,7 @@ def _sys(role_content: str) -> SystemMessage:
 # ---------------------------------------------------------------------------
 
 _PERCEPTION_CONTENT = (
-    "You are the Perception module of I.S.A.A.C., a neuro-symbolic autonomous agent. "
+    "Your current task is perception. "
     "Your role is to parse the user's request, extract structured observations about "
     "the environment, and produce an initial hypothesis for solving the task. "
     "If a screenshot is provided, analyse the GUI state (visible elements, active window, "
@@ -82,7 +82,7 @@ _PERCEPTION_CONTENT = (
 )
 
 _PLANNER_CONTENT = (
-    "You are the Planner module of I.S.A.A.C. Given a world model, hypothesis, "
+    "You are the Planner module Given a world model, hypothesis, "
     "past errors, and available skills, decompose the task into an ordered list of "
     "atomic, dependency-aware steps.  Each step must be concrete enough for a code "
     "synthesiser or UI automation engine to implement in a single execution cycle. "
@@ -94,7 +94,7 @@ _PLANNER_CONTENT = (
 )
 
 _SYNTHESIS_CONTENT = (
-    "You are the Synthesis module of I.S.A.A.C. Given a single plan step and the "
+    "You are the Synthesis module Given a single plan step and the "
     "current world model, generate a self-contained Python script that accomplishes "
     "the step.  The script will run inside an isolated sandbox with NO network.  "
     "Print results to stdout.  Import only from the Python standard library and numpy. "
@@ -102,7 +102,7 @@ _SYNTHESIS_CONTENT = (
 )
 
 _SYNTHESIS_UI_CONTENT = (
-    "You are the Synthesis module of I.S.A.A.C. operating in UI mode. "
+    "You are the Synthesis module operating in UI mode. "
     "Given a plan step, the current screen screenshot, and detected UI elements, "
     "emit a JSON array of UIActions to accomplish the step. "
     "Each action must have: 'type', 'x', 'y' (when applicable), "
@@ -112,7 +112,7 @@ _SYNTHESIS_UI_CONTENT = (
 )
 
 _SYNTHESIS_HYBRID_CONTENT = (
-    "You are the Synthesis module of I.S.A.A.C. operating in hybrid mode. "
+    "You are the Synthesis module operating in hybrid mode. "
     "Generate a self-contained Python script using Playwright that automates the "
     "given UI task inside a virtual Chromium browser running on DISPLAY=:99. "
     "The script runs as a standalone program — include the main() call. "
@@ -124,7 +124,7 @@ _SYNTHESIS_HYBRID_CONTENT = (
 )
 
 _COMPUTER_USE_CONTENT = (
-    "You are the ComputerUse controller of I.S.A.A.C. "
+    "You are the ComputerUse controller "
     "You receive a screenshot of the current desktop and a pending UIAction queue. "
     "Decide ONE next UIAction to execute. "
     "If the screenshot shows the step is already complete, emit: "
@@ -135,7 +135,7 @@ _COMPUTER_USE_CONTENT = (
 )
 
 _REFLECTION_CONTENT = (
-    "You are the Reflection / Critic module of I.S.A.A.C. Analyse the execution logs "
+    "You are the Reflection / Critic module Analyse the execution logs "
     "from the sandbox run.  Determine whether the step succeeded or failed.  If the step "
     "failed, diagnose the root cause and propose a revised hypothesis.  If it succeeded, "
     "summarise what was achieved and propose a skill candidate for generalisation. "
@@ -143,7 +143,7 @@ _REFLECTION_CONTENT = (
 )
 
 _REFLECTION_UI_CONTENT = (
-    "You are the Reflection / Critic module of I.S.A.A.C. operating in Computer-Use mode. "
+    "You are the Reflection / Critic module operating in Computer-Use mode. "
     "You will receive: the step description, a before screenshot, an after screenshot, "
     "and the UIAction that was executed. "
     "Determine whether the action produced the expected visual change. "
@@ -154,7 +154,7 @@ _REFLECTION_UI_CONTENT = (
 )
 
 _SKILL_ABSTRACTION_CONTENT = (
-    "You are the Skill Abstraction module of I.S.A.A.C. Given a concrete Python script "
+    "You are the Skill Abstraction module Given a concrete Python script "
     "that successfully solved a task, generalise it into a reusable, parameterised "
     "function.  The function must have clear type hints, a docstring, and handle edge "
     "cases.  It should be importable as a standalone module.  "
@@ -162,7 +162,7 @@ _SKILL_ABSTRACTION_CONTENT = (
 )
 
 _SKILL_ABSTRACTION_UI_CONTENT = (
-    "You are the Skill Abstraction module of I.S.A.A.C. operating in UI mode. "
+    "You are the Skill Abstraction module operating in UI mode. "
     "You will receive a sequence of UIActions that successfully accomplished a task, "
     "plus before/after screenshots. "
     "Generalise this interaction trace into a reusable Python function using Playwright. "
@@ -572,7 +572,7 @@ def skill_abstraction_ui_prompt(
 
 
 _ARC_SYNTHESIS_CONTENT = (
-    "You are an expert ARC-AGI solver operating as the Synthesis module of I.S.A.A.C. "
+    "You are an expert ARC-AGI solver operating as the Synthesis module "
     "Your task is to write a Python function `solve(grid: np.ndarray) -> np.ndarray` "
     "that correctly transforms any input grid to its corresponding output grid, "
     "generalising from the provided training examples.\n\n"
@@ -601,7 +601,7 @@ _ARC_SYNTHESIS_CONTENT = (
 )
 
 _ARC_PLANNER_CONTENT = (
-    "You are the Planner module of I.S.A.A.C. solving an ARC-AGI task. "
+    "You are the Planner module solving an ARC-AGI task. "
     "You have been given structured observations from the Explorer node including "
     "prior analysis (objects, topology, symmetry) and analogy engine findings "
     "(cross-pair transformation hypotheses).\n\n"

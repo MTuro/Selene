@@ -1,6 +1,7 @@
-""" "Tests for Speech-to-Text (STT) fallback logic."""
+"""Speech-to-text fallback tests, extended for SELENE local-only operation."""
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -8,9 +9,10 @@ import pytest
 from isaac.multimodal.voice.stt import STTManager
 
 
-def test_stt_provider_fallback():
+def test_stt_provider_fallback(monkeypatch):
     """Test that STTManager falls back to cloud providers if local fails."""
     audio_file = Path("test_audio.wav")
+    monkeypatch.setattr("isaac.multimodal.voice.stt.WhisperModel", MagicMock())
 
     # We mock the LocalWhisperProvider in the STTManager's providers list
     with patch("pathlib.Path.exists", return_value=True):
@@ -34,9 +36,10 @@ def test_stt_provider_fallback():
         assert mock_success.transcribe.called
 
 
-def test_stt_all_fail():
+def test_stt_all_fail(monkeypatch):
     """Test that STTManager raises RuntimeError when all providers fail."""
     audio_file = Path("test_audio.wav")
+    monkeypatch.setattr("isaac.multimodal.voice.stt.WhisperModel", MagicMock())
 
     with patch("pathlib.Path.exists", return_value=True):
         stt = STTManager(cloud_priority=["groq"])
@@ -52,7 +55,8 @@ def test_stt_all_fail():
             stt.transcribe(audio_file)
 
 
-def test_stt_file_not_found():
+def test_stt_file_not_found(monkeypatch):
+    monkeypatch.setattr("isaac.multimodal.voice.stt.WhisperModel", MagicMock())
     """Test that STTManager raises FileNotFoundError for missing files."""
     stt = STTManager()
     with pytest.raises(FileNotFoundError):
@@ -93,3 +97,56 @@ def test_get_stt_respects_voice_disabled(monkeypatch):
     with pytest.raises(RuntimeError, match="disabled"):
         stt_module.get_stt()
     assert stt_module.is_stt_available() is False
+
+
+def test_local_only_stt_never_reads_cloud_credentials(monkeypatch, tmp_path):
+    from isaac.config.settings import get_settings
+    from isaac.multimodal.voice import stt as stt_module
+
+    monkeypatch.setenv("ISAAC_OPENAI_API_KEY", "test-cloud-key")
+    credential = MagicMock(return_value="test-cloud-key")
+    monkeypatch.setattr("isaac.security.credentials.get_credential", credential)
+    monkeypatch.setattr(get_settings(), "voice_stt_allow_cloud", False)
+    monkeypatch.setattr(stt_module, "_stt_manager", None)
+    whisper = MagicMock()
+    monkeypatch.setattr(stt_module, "WhisperModel", whisper)
+    whisper.return_value.transcribe.side_effect = RuntimeError("local failure")
+    audio_path = tmp_path / "prompt.wav"
+    audio_path.touch()
+
+    for manager in (stt_module.get_stt(), STTManager(cloud_priority=[])):
+        assert len(manager.providers) == 1
+        assert isinstance(manager.providers[0], stt_module.LocalWhisperProvider)
+        with pytest.raises(RuntimeError, match="All STT providers failed"):
+            manager.transcribe(audio_path)
+    credential.assert_not_called()
+
+
+@pytest.mark.parametrize("language", ["en", "pt"])
+def test_selene_uses_hotwords_with_language_detection(monkeypatch, tmp_path, language):
+    from isaac.config.settings import get_settings
+    from isaac.multimodal.voice import stt as stt_module
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "identity_profile", "selene")
+    monkeypatch.setattr(settings, "voice_stt_language", "")
+    whisper = MagicMock()
+    whisper.return_value.transcribe.return_value = (
+        iter(
+            [
+                SimpleNamespace(
+                    text=" Celine, how are you?" if language == "en" else " Celene, tudo bem?"
+                )
+            ]
+        ),
+        SimpleNamespace(language=language),
+    )
+    monkeypatch.setattr("isaac.multimodal.voice.stt.WhisperModel", whisper)
+    audio_path = tmp_path / "prompt.wav"
+    audio_path.touch()
+    monkeypatch.setattr(stt_module, "_stt_manager", None)
+
+    assert stt_module.get_stt().transcribe(audio_path).startswith(("Celine,", "Celene,"))
+    whisper.return_value.transcribe.assert_called_once_with(
+        str(audio_path), language=None, beam_size=5, hotwords="Selene"
+    )

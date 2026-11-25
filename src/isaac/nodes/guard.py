@@ -289,6 +289,7 @@ def guard_node(state: IsaacState) -> dict[str, Any]:
     injection attacks.  If blocked, routes to END with an explanation.
     """
     from isaac.config.settings import settings
+    from isaac.identity.address import selene_identity_reply
 
     messages = state.get("messages", [])
     if not messages:
@@ -296,11 +297,13 @@ def guard_node(state: IsaacState) -> dict[str, Any]:
 
     # Get latest user message text
     user_text = ""
+    plain_text = False
     for msg in reversed(messages):
         if isinstance(msg, HumanMessage):
             content = msg.content
             if isinstance(content, str):
                 user_text = content
+                plain_text = True
             elif isinstance(content, list):
                 user_text = " ".join(
                     b.get("text", "")
@@ -312,9 +315,16 @@ def guard_node(state: IsaacState) -> dict[str, Any]:
     if not user_text:
         return {"current_phase": "guard", "guard_blocked": False}
 
+    world_model = state.get("world_model")
+    has_attachments = bool(world_model and world_model.resources.get("_attachments"))
+    fixed_identity_lookup = (
+        plain_text and not has_attachments and selene_identity_reply(user_text) is not None
+    )
+    # Exact identity questions on the text path have a fixed reply in DirectResponse.
+    # They still run through the regular expression checks.
     guard = PromptInjectionGuard(
         threshold=settings.guard_suspicion_threshold,
-        use_llm=True,
+        use_llm=not fixed_identity_lookup,
     )
     result = guard.analyse(user_text)
 

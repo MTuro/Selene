@@ -1,5 +1,8 @@
 # I.S.A.A.C.
 
+SELENE is a fork of I.S.A.A.C. by Matheus Soranço. This README includes the
+SELENE voice setup for Arch Linux and Hyprland.
+
 **Intelligent System for Autonomous Action and Cognition**
 
 [![CI](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml/badge.svg)](https://github.com/Matheussoranco/I.S.A.A.C/actions/workflows/ci.yml)
@@ -284,9 +287,9 @@ Every field in `IsaacState` has a declared reducer (`append`, `replace`, `merge`
 ```
 src/isaac/multimodal/
 ├── voice/
-│   ├── stt.py            ← Whisper (faster-whisper / openai-whisper)
-│   ├── tts.py            ← edge-tts / OpenAI / ElevenLabs / pyttsx3 / Kokoro provider selection
-│   └── audio_io.py       ← Mic capture, VAD (silero), playback
+│   ├── stt.py            ← faster-whisper with optional OpenAI fallback
+│   ├── tts.py            ← Edge / Piper / OpenAI / ElevenLabs provider selection
+│   └── audio_io.py       ← Mic capture, WebRTC VAD or energy gate, playback
 ├── vision/
 │   ├── vision_lm.py      ← Image+text VLM wrapper (Ollama llava, qwen2.5-vl)
 │   └── screen_capture.py ← mss / PIL.ImageGrab (multi-monitor)
@@ -296,7 +299,7 @@ src/isaac/multimodal/
 ### Voice Pipeline
 
 ```
-Audio Input (mic) ──► VAD (silero) ──► faster-whisper ──► Text
+Audio Input (mic) ──► VAD ──► faster-whisper ──► Text
                                                             │
                                               ┌─────────────┴─────────────┐
                                               ▼                           ▼
@@ -307,12 +310,20 @@ Audio Input (mic) ──► VAD (silero) ──► faster-whisper ──► Text
                                               │
                                               ▼
                                          LLM Response ──► TTS Provider ──► Audio Output
-                                              (edge-tts / OpenAI / ElevenLabs / pyttsx3 / Kokoro)
+                                              (Edge / Piper / OpenAI / ElevenLabs)
 ```
 
 **Modes:**
 - **Push-to-talk** (`isaac voice`) — manual trigger, single utterance
 - **Hands-free** (`isaac voice --hands-free`) — continuous VAD-driven listening
+
+For SELENE on Arch, select an installed Ollama model and run
+`isaac voice` from the Hyprland session. Press Enter, speak into the G535,
+and pause. With `ISAAC_IDENTITY_PROFILE=selene`, the assistant identifies as
+SELENE, accepts Portuguese or English locally, and replies in English with
+the `pt-BR-ThalitaMultilingualNeural` voice. Edge requires
+internet and sends the reply text to Microsoft's speech service.
+See the [Arch voice setup](SETUP.md#selene-voice-on-arch-linux-and-hyprland).
 
 ### Vision Pipeline
 
@@ -753,7 +764,7 @@ See [NOTICE](NOTICE) for copyright information. Previously published releases re
 - [LangGraph](https://github.com/langchain-ai/langgraph) — state graph framework
 - [Ollama](https://ollama.com/) — local LLM serving
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — local STT
-- [edge-tts](https://github.com/rany2/edge-tts) — local TTS
+- [edge-tts](https://github.com/rany2/edge-tts) — Microsoft Edge online TTS
 - [Playwright](https://playwright.dev/) — browser automation
 - [NetworkX](https://networkx.org/) — knowledge graphs
 - [ChromaDB](https://www.trychroma.com/) — vector storage

@@ -33,6 +33,8 @@ from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
+from isaac.identity.soul import assistant_name, enforce_speaking_identity, uses_selene_identity
+
 # ---------------------------------------------------------------------------
 # Theme
 # ---------------------------------------------------------------------------
@@ -140,12 +142,15 @@ class TerminalUI:
         version_text = Text("v1.6.2", style="dim cyan")
         combined = Text.assemble(subtitle, "  ", version_text)
 
-        banner_group = Group(logo, combined)
+        banner: Text | Group
+        banner = (
+            Text("[SELENE]", style="bold cyan") if uses_selene_identity() else Group(logo, combined)
+        )
 
         self.console.print()
         self.console.print(
             Panel(
-                banner_group,
+                banner,
                 border_style="bright_cyan",
                 padding=(0, 2),
                 box=HEAVY,
@@ -198,10 +203,10 @@ class TerminalUI:
         elapsed = time.monotonic() - self._start_time if self._start_time else 0
         elapsed_str = f"{elapsed:.1f}s" if elapsed else ""
 
-        content = Markdown(text)
+        content = Markdown(enforce_speaking_identity(text))
 
         title = Text.assemble(
-            (" I.S.A.A.C. ", Style(bold=True, color="bright_cyan")),
+            (f" {assistant_name()} ", Style(bold=True, color="bright_cyan")),
         )
         subtitle = Text(elapsed_str, style="dim") if elapsed_str else None
 
@@ -228,7 +233,7 @@ class TerminalUI:
         self._streaming = True
         self._stream_buffer = []
         self.console.print()
-        title = Text(" I.S.A.A.C. ", style="bold bright_cyan")
+        title = Text(f" {assistant_name()} ", style="bold bright_cyan")
         self.console.print(Rule(title=title, style="bright_cyan"))
         self.console.print()
 
@@ -462,7 +467,7 @@ class TerminalUI:
         table.add_row("/team <goal>", "Run specialist team")
         table.add_row("/speak <text>", "Text-to-speech")
         table.add_row("/improve", "Run improvement cycle")
-        table.add_row("/exit, /quit", "Exit I.S.A.A.C.")
+        table.add_row("/exit, /quit", f"Exit {assistant_name()}")
 
         self.console.print(table)
 
@@ -562,7 +567,7 @@ class TerminalUI:
             content = Text("".join(self._stream_buffer), style="isaac.token")
             return Panel(
                 content,
-                title=Text(" I.S.A.A.C. (streaming) ", style="bold bright_cyan"),
+                title=Text(f" {assistant_name()} (streaming) ", style="bold bright_cyan"),
                 border_style="bright_cyan",
                 padding=(1, 2),
                 box=ROUNDED,

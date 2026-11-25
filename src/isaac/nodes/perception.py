@@ -87,9 +87,20 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
 
     # === FAST PATH: heuristic classifier (zero LLM cost) ===================
     if not screenshot_b64:
-        task_mode_hint, confidence = fast_classify(user_text)
+        from isaac.identity.address import selene_identity_reply, strip_selene_address
+        from isaac.identity.soul import uses_selene_identity
+
+        request = strip_selene_address(user_text) if uses_selene_identity() else user_text
+        identity_question = selene_identity_reply(user_text) is not None
+        task_mode_hint, confidence = (
+            ("direct", 1.0) if identity_question else fast_classify(request or user_text)
+        )
         if task_mode_hint is not None and confidence >= 0.85:
-            hypothesis = classify_hypothesis(user_text, task_mode_hint)
+            hypothesis = (
+                "The user asks about the assistant's identity."
+                if identity_question
+                else classify_hypothesis(request or user_text, task_mode_hint)
+            )
             logger.debug(
                 "Perception (fast): mode=%s conf=%.2f input=%r",
                 task_mode_hint,

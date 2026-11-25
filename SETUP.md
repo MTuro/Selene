@@ -1,5 +1,7 @@
 # I.S.A.A.C. — Setup Guide
 
+This guide includes the SELENE changes for conversational voice on Arch Linux.
+
 > **Intelligent System for Autonomous Action and Cognition** v1.6.2
 
 ## Prerequisites
@@ -175,10 +177,14 @@ export ANTHROPIC_API_KEY=sk-ant-...
 | Variable                       | Default                  | Purpose |
 | ------------------------------ | ------------------------ | ------- |
 | `ISAAC_VOICE_ENABLED`          | `true`                   | Master switch |
-| `ISAAC_VOICE_DEVICE`           | `auto`                   | `auto` / `cpu` / `cuda` |
+| `ISAAC_VOICE_DEVICE`           | `cpu`                    | `auto` / `cpu` / `cuda` |
 | `ISAAC_VOICE_STT_MODEL`        | `base`                   | Whisper size: `tiny` / `base` / `small` / `medium` / `large-v3` |
-| `ISAAC_VOICE_STT_LANGUAGE`     | (auto-detect)            | ISO 639-1 (`en`, `pt`, …) |
+| `ISAAC_VOICE_STT_LANGUAGE`     | (auto-detect)            | Leave blank for Portuguese or English input. Set an ISO 639-1 code to force one input language |
+| `ISAAC_IDENTITY_PROFILE`      | `isaac`                  | Set `selene` for the SELENE identity, English replies, and a Whisper bias toward “Selene” |
 | `ISAAC_VOICE_STT_COMPUTE_TYPE` | `int8`                   | faster-whisper compute (`int8` / `float16` / `float32`) |
+| `ISAAC_VOICE_STT_ALLOW_CLOUD`  | `false`                  | Opt in to the credential-backed OpenAI fallback for conversational STT |
+| `ISAAC_VOICE_TTS_PROVIDER`     | `edge`                   | `edge` / `piper` / `openai` / `elevenlabs` |
+| `ISAAC_VOICE_TTS_EDGE_VOICE`   | `pt-BR-ThalitaMultilingualNeural` | Default Microsoft Edge voice ID |
 | `ISAAC_VOICE_TTS_VOICE`        | `en_US-lessac-medium`    | Piper voice file under `~/.isaac/voices` or `$PIPER_VOICE_DIR` |
 | `ISAAC_VOICE_TTS_RATE`         | `175`                    | Words/min (pyttsx3 only) |
 
@@ -315,6 +321,63 @@ isaac run
 isaac voice                  # push-to-talk
 isaac voice --hands-free     # continuous listening (VAD)
 ```
+
+#### SELENE voice on Arch Linux and Hyprland
+
+Use a Python 3.12 or 3.13 virtual environment. The `[voice]` extra installs
+Edge, faster-whisper, WebRTC VAD and Piper. The `[audio]` extra can also run
+this flow with energy-based VAD.
+
+```bash
+python -m pip install -e '.[voice]'
+wpctl status
+ollama list
+```
+
+In the Hyprland session, check that WirePlumber lists the G535 microphone and
+headphones as the default source and sink. SELENE opens the default PortAudio
+devices. The Arch audio packages used here are `portaudio`, `pipewire-alsa`,
+and `libsndfile` for decoding Edge's MP3 through SoundFile.
+
+Place the following in the checkout's `.env` or the active profile's `.env`.
+Use the same installed chat model in all three model fields. This example
+uses `qwen2.5:3b`.
+
+```dotenv
+ISAAC_LLM_PROVIDER=ollama
+ISAAC_LLM_FALLBACK_PROVIDER=
+ISAAC_OLLAMA_BASE_URL=http://localhost:11434
+ISAAC_MODEL_NAME=qwen2.5:3b
+ISAAC_OLLAMA_LIGHT_MODEL=qwen2.5:3b
+ISAAC_OLLAMA_HEAVY_MODEL=qwen2.5:3b
+ISAAC_FAST_MODEL=
+ISAAC_STRONG_MODEL=
+ISAAC_VOICE_ENABLED=true
+ISAAC_IDENTITY_PROFILE=selene
+ISAAC_VOICE_STT_ALLOW_CLOUD=false
+ISAAC_VOICE_DEVICE=cpu
+ISAAC_VOICE_STT_MODEL=base
+ISAAC_VOICE_STT_COMPUTE_TYPE=int8
+ISAAC_VOICE_STT_LANGUAGE=
+ISAAC_VOICE_TTS_PROVIDER=edge
+ISAAC_VOICE_TTS_EDGE_VOICE=pt-BR-ThalitaMultilingualNeural
+```
+
+Run `isaac voice`. Press Enter, speak, and pause to end the turn. Enter `/q`
+at the prompt to quit. On first use, faster-whisper may fetch the small
+`base` model if it is absent from the local cache. Ollama uses the installed
+model configured above.
+
+Speak in Portuguese or English. SELENE replies in English with Thalita and
+uses Marcos when appropriate. “Selene” is an optional form of address after
+recording starts. The REPL shows the original transcript before any correction
+to a name at the start of the utterance. Select `ISAAC_IDENTITY_PROFILE=isaac`
+for the original identity and its optional `ISAAC_SOUL_PATH` custom persona.
+
+Edge TTS requires internet and sends the reply text to Microsoft's service.
+Run `edge-tts --list-voices` to check the current catalog. If synthesis fails,
+the REPL keeps the text reply visible and accepts another turn. For local
+speech output, select `piper` and point `ISAAC_VOICE_TTS_VOICE` to a Piper model.
 
 ### Vision one-shot
 

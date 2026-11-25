@@ -1,13 +1,15 @@
-"""Tests for the TTS provider matrix and output-format handling."""
+"""TTS tests, extended for SELENE Edge voice and provider selection."""
 
 from __future__ import annotations
 
 import sys
 import types
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from isaac.multimodal.voice import tts as tts_module
 from isaac.multimodal.voice.tts import (
     TTSManager,
     TTSProvider,
@@ -134,3 +136,62 @@ def test_pcm_payload_is_wrapped_as_wav(tmp_path) -> None:
     payload = target.read_bytes()
     assert payload.startswith(b"RIFF")
     assert payload[8:12] == b"WAVE"
+
+
+@pytest.mark.parametrize("voice", ["pt-BR-ThalitaMultilingualNeural", "pt-BR-FranciscaNeural"])
+async def test_edge_receives_the_selected_voice(monkeypatch, tmp_path, voice) -> None:
+    from isaac.config.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "voice_tts_edge_voice", voice)
+    communicate = Mock(return_value=Mock(save=AsyncMock()))
+    monkeypatch.setitem(sys.modules, "edge_tts", types.SimpleNamespace(Communicate=communicate))
+    output = tmp_path / "speech.mp3"
+
+    assert await TTSManager().synthesize("Hello", output) == output
+    communicate.assert_called_once_with("Hello", voice)
+    communicate.return_value.save.assert_awaited_once_with(str(output))
+
+
+def test_thalita_is_the_default_edge_voice() -> None:
+    from isaac.config.settings import Settings
+
+    field = Settings.model_fields["voice_tts_edge_voice"]
+    assert field.default == "pt-BR-ThalitaMultilingualNeural"
+
+
+@pytest.mark.parametrize(
+    ("name", "backend", "dependency"),
+    [
+        ("edge", tts_module.EdgeTTSProvider, "edge_tts"),
+        ("piper", tts_module.PiperProvider, "piper"),
+        ("openai", tts_module.OpenAIProvider, "openai"),
+        ("elevenlabs", tts_module.ElevenLabsProvider, "httpx"),
+    ],
+)
+def test_availability_uses_the_configured_backend(monkeypatch, name, backend, dependency) -> None:
+    from isaac.config.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "voice_tts_provider", name)
+    monkeypatch.setattr(tts_module, "_manager", None)
+    check_dependency = Mock()
+    monkeypatch.setattr(tts_module, "import_module", check_dependency)
+
+    assert tts_module.is_tts_available()
+    check_dependency.assert_called_once_with(dependency)
+    assert isinstance(tts_module.get_tts()._provider, backend)
+
+    check_dependency.side_effect = ImportError(dependency)
+    assert not tts_module.is_tts_available()
+
+
+async def test_speak_cleans_up_when_edge_synthesis_fails(monkeypatch, tmp_path) -> None:
+    output = tmp_path / "speech.wav"
+    output.touch()
+    manager = TTSManager()
+    monkeypatch.setattr(tts_module, "_reserve_temp", Mock(return_value=output))
+    monkeypatch.setattr(manager, "synthesize", AsyncMock(side_effect=OSError("offline")))
+
+    with pytest.raises(OSError, match="offline"):
+        await manager.speak("Olá")
+
+    assert not output.exists()

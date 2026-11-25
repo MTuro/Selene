@@ -56,6 +56,7 @@ from isaac.agents.tool_repair import (
 )
 from isaac.agents.trace import TraceStore
 from isaac.agents.validation import validate_args
+from isaac.identity.soul import enforce_speaking_identity, soul_system_prompt, uses_selene_identity
 from isaac.memory.manager import MemoryManager
 from isaac.security.redact import redact_secrets
 from isaac.tools.base import IsaacTool
@@ -485,7 +486,17 @@ class AgentLoop:
         self._stream_callback = stream_callback
         self._tools: dict[str, IsaacTool] = {t.name: t for t in tools}
         self._llm = llm
+        self._selene_identity = uses_selene_identity()
         self._system_prompt = system_prompt or DEFAULT_SYSTEM_PROMPT
+        if self._selene_identity:
+            identity = soul_system_prompt()
+            agent_role = self._system_prompt.replace(
+                "You are I.S.A.A.C., an autonomous problem-solving agent",
+                "In this role, solve problems autonomously",
+            )
+            self._system_prompt = (
+                agent_role if agent_role.startswith(identity) else f"{identity}\n\n{agent_role}"
+            )
         self.max_iterations = max(1, max_iterations)
         self.max_risk = max_risk
         self.auto_approve = auto_approve
@@ -787,13 +798,25 @@ class AgentLoop:
         for attempt in range(self.llm_retries + 1):
             boundary.check()
             emitted = False
+            buffered: list[str] = []
             try:
                 async for chunk in llm.astream(list(messages)):
                     boundary.check()
                     if hasattr(chunk, "content") and chunk.content:
                         emitted = True
-                        self._emit_stream(chunk.content)
-                        yield chunk.content
+                        if self._selene_identity:
+                            buffered.append(
+                                _content_text(chunk)
+                                if not isinstance(chunk.content, str)
+                                else chunk.content
+                            )
+                        else:
+                            self._emit_stream(chunk.content)
+                            yield chunk.content
+                if buffered:
+                    reply = enforce_speaking_identity("".join(buffered))
+                    self._emit_stream(reply)
+                    yield reply
                 return
             except _RunStopped:
                 raise
@@ -999,7 +1022,7 @@ class AgentLoop:
                         health.native += 1
                         turn_bucket = "native"
                     else:
-                        final_text = answer or text
+                        final_text = enforce_speaking_identity(answer or text)
                         reason = "final"
                         self._emit("final", text=final_text)
                         break
@@ -1053,7 +1076,7 @@ class AgentLoop:
                             # The retry produced neither a call nor a repair.
                             health.unrecovered += 1
                             pending_reflexion = False
-                        final_text = text
+                        final_text = enforce_speaking_identity(text)
                         reason = "final"
                         self._emit("final", text=final_text)
                         break
