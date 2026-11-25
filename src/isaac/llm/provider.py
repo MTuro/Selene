@@ -118,7 +118,13 @@ def _preflight_once(model: str, base_url: str) -> None:
     preflight(model, base_url or DEFAULT_BASE_URL)
 
 
-def _build_ollama(model: str, temperature: float, max_tokens: int | None = None) -> BaseChatModel:
+def _build_ollama(
+    model: str,
+    temperature: float,
+    max_tokens: int | None = None,
+    *,
+    timeout: float | None = None,
+) -> BaseChatModel:
     """Build an Ollama chat model after preflighting daemon + model tag."""
     from isaac.config.settings import settings
     from isaac.llm.providers.ollama import DEFAULT_BASE_URL
@@ -130,10 +136,11 @@ def _build_ollama(model: str, temperature: float, max_tokens: int | None = None)
         base_url=settings.ollama_base_url or DEFAULT_BASE_URL,
         temperature=temperature,
         max_tokens=max_tokens,
+        timeout=timeout,
     )
 
 
-def _capped_llm(max_tokens: int) -> BaseChatModel:
+def _capped_llm(max_tokens: int, *, timeout: float | None = None) -> BaseChatModel:
     """Return a token-capped model on the *fast* tier for the given budget.
 
     Shared by :func:`get_perception_llm` and :func:`get_direct_response_llm`,
@@ -147,7 +154,7 @@ def _capped_llm(max_tokens: int) -> BaseChatModel:
     temperature = cfg.fast_temperature if cfg.fast_temperature >= 0 else cfg.temperature
 
     if provider == "ollama":
-        return _build_ollama(model_name, temperature, max_tokens=max_tokens)
+        return _build_ollama(model_name, temperature, max_tokens=max_tokens, timeout=timeout)
 
     if provider == "openai":
         api_key = provider_api_key("openai", settings)
@@ -181,15 +188,15 @@ def _capped_llm(max_tokens: int) -> BaseChatModel:
     return base.bind(max_tokens=max_tokens)  # type: ignore[return-value]
 
 
-@lru_cache(maxsize=1)
-def get_perception_llm() -> BaseChatModel:
+@lru_cache(maxsize=2)
+def get_perception_llm(*, timeout: float | None = None) -> BaseChatModel:
     """Return a token-capped LLM specifically for the Perception node.
 
     Capped at 200 tokens because we only need a short JSON response:
     ``{"observations": [...], "hypothesis": "...", "task_mode": "..."}``.
     Limiting output tokens is the single fastest win for Ollama.
     """
-    return _capped_llm(200)
+    return _capped_llm(200, timeout=timeout)
 
 
 @lru_cache(maxsize=1)

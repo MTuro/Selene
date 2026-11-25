@@ -124,7 +124,12 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
     # -- LLM path: only reached for ambiguous or multimodal inputs -----------
     from isaac.llm.provider import get_perception_llm
 
-    llm = get_perception_llm()
+    if state.get("voice_session"):
+        from isaac.config.settings import get_settings
+
+        llm = get_perception_llm(timeout=get_settings().voice_llm_token_timeout_s)
+    else:
+        llm = get_perception_llm()
 
     # -- Long-term memory recall (skip for obviously-direct queries) --------
     ltm_context = ""

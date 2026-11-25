@@ -13,16 +13,23 @@ Modified for SELENE to use the voice session's requested reply language.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from isaac.core.state import IsaacState
+from isaac.core.voice_turn import check_voice_turn, current_voice_turn
 from isaac.identity.address import selene_identity_reply
 from isaac.identity.soul import assistant_name, enforce_speaking_identity, uses_selene_identity
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    from langchain_core.messages import BaseMessageChunk
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +39,8 @@ def _build_direct_prompt(
     hypothesis: str,
     history: list[Any] | None = None,
     response_language: str = "",
+    *,
+    spoken: bool = False,
 ) -> list[Any]:
     """Build a minimal prompt for direct conversational response."""
     from isaac.identity.soul import soul_system_prompt
@@ -51,8 +60,11 @@ def _build_direct_prompt(
     )
     if response_language:
         system_content += f" Reply in {response_language}."
-    from langchain_core.messages import HumanMessage
-
+    if spoken:
+        system_content += (
+            " Start with a complete sentence of 12 words or fewer that answers the question."
+            " Elaborate in short sentences using plain speech."
+        )
     messages: list[Any] = [SystemMessage(content=system_content)]
 
     if hypothesis:
@@ -63,6 +75,61 @@ def _build_direct_prompt(
     return messages
 
 
+def _latest_question(state: IsaacState) -> tuple[str, list[Any]]:
+    messages = state.get("messages", [])
+    for index in range(len(messages) - 1, -1, -1):
+        if isinstance(message := messages[index], HumanMessage):
+            content = message.content
+            return content if isinstance(content, str) else str(content), messages[:index]
+    return "", list(messages)
+
+
+async def async_direct_response_node(state: IsaacState) -> dict[str, Any]:
+    """Expose only public answer text from the native async model stream."""
+    turn = current_voice_turn.get()
+    if turn is None:
+        return await asyncio.to_thread(direct_response_node, state)
+
+    from isaac.config.settings import get_settings
+    from isaac.llm.provider import get_direct_response_llm
+
+    check_voice_turn()
+    user_text, history = _latest_question(state)
+    answer = selene_identity_reply(user_text)
+    if not answer:
+        # The existing provider factory performs a synchronous Ollama preflight.
+        llm = await asyncio.to_thread(get_direct_response_llm)
+        prompt = _build_direct_prompt(
+            user_text,
+            state.get("hypothesis", ""),
+            history,
+            state.get("response_language", ""),
+            spoken=True,
+        )
+        parts: list[str] = []
+        timeout = get_settings().voice_llm_token_timeout_s
+        # LangChain annotates astream as AsyncIterator, but its implementation is a generator.
+        response = cast("AsyncGenerator[BaseMessageChunk, None]", llm.astream(prompt))
+        with turn.generation():
+            async with contextlib.aclosing(response) as stream:
+                while True:
+                    try:
+                        async with asyncio.timeout(timeout):
+                            chunk = await anext(stream)
+                    except StopAsyncIteration:
+                        break
+                    except TimeoutError as exc:
+                        raise TimeoutError("Timed out waiting for a model response.") from exc
+                    if token := chunk.text():
+                        parts.append(token)
+                        await turn.token(token)
+        answer = "".join(parts)
+    return {
+        "messages": [AIMessage(content=enforce_speaking_identity(answer))],
+        "current_phase": "direct_response",
+    }
+
+
 def direct_response_node(state: IsaacState) -> dict[str, Any]:
     """LangGraph node: DirectResponse — single-call fast-path.
 
@@ -71,16 +138,7 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
     """
     from isaac.llm.provider import get_direct_response_llm
 
-    # Extract user text
-    messages = state.get("messages", [])
-    user_text = ""
-    from langchain_core.messages import HumanMessage
-
-    for msg in reversed(messages):
-        if isinstance(msg, HumanMessage):
-            content = msg.content
-            user_text = content if isinstance(content, str) else str(content)
-            break
+    user_text, history = _latest_question(state)
 
     # Resolve the active UI (if running inside the Rich REPL)
     ui = None
@@ -105,7 +163,7 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
 
     llm = get_direct_response_llm()
     prompt = _build_direct_prompt(
-        user_text, state.get("hypothesis", ""), messages[:-1], state.get("response_language", "")
+        user_text, state.get("hypothesis", ""), history, state.get("response_language", "")
     )
 
     # Try streaming for instant feedback

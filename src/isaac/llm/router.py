@@ -129,24 +129,12 @@ class LLMRouter:
 
     def _build_ollama_model(self, model_name: str) -> BaseChatModel:
         """Build a LangChain ChatOllama instance."""
-        try:
-            from langchain_ollama import ChatOllama
+        from isaac.config.settings import get_settings
+        from isaac.core.voice_turn import current_voice_turn
+        from isaac.llm.providers.ollama import build
 
-            return ChatOllama(
-                model=model_name,
-                base_url=self._ollama_base_url,
-                temperature=0.2,
-            )
-        except ImportError:
-            # Fallback to OpenAI-compatible endpoint
-            from langchain_openai import ChatOpenAI
-
-            return ChatOpenAI(
-                model=model_name,
-                base_url=f"{self._ollama_base_url}/v1",
-                api_key="ollama",  # type: ignore[arg-type]
-                temperature=0.2,
-            )
+        timeout = get_settings().voice_llm_token_timeout_s if current_voice_turn.get() else None
+        return build(model=model_name, base_url=self._ollama_base_url, timeout=timeout)
 
     def _build_fallback_model(self) -> BaseChatModel:
         """Build a model using the configured API fallback provider."""

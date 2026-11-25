@@ -111,19 +111,21 @@ class STTManager:
         """Compatibility hook; providers are prepared during construction."""
         return None
 
-    def transcribe(self, audio_path: str | Path) -> str:
+    def transcribe(self, audio_path: str | Path, *, local_only: bool = False) -> str:
         """Transcribe audio using the first available provider in the chain."""
         audio_path = Path(audio_path)
         if not audio_path.exists():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
         for provider in self.providers:
+            if local_only and not isinstance(provider, LocalWhisperProvider):
+                continue
             try:
                 text = provider.transcribe(audio_path)
             except Exception as exc:
                 logger.error("STT provider %s failed: %s", provider.__class__.__name__, exc)
                 continue
-            if text.strip():
+            if local_only or text.strip():
                 return text
             logger.warning("STT provider %s returned no text.", provider.__class__.__name__)
 
@@ -159,13 +161,16 @@ def get_stt() -> STTManager:
     return _stt_manager
 
 
-def is_stt_available() -> bool:
+def is_stt_available(*, local_only: bool = False) -> bool:
     """Check whether at least one real STT backend is configured."""
     from isaac.config.settings import get_settings
 
     if not get_settings().voice_enabled:
         return False
     try:
-        return len(get_stt().providers) > 0
+        return any(
+            not local_only or isinstance(provider, LocalWhisperProvider)
+            for provider in get_stt().providers
+        )
     except Exception:
         return False

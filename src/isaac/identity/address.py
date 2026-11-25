@@ -5,7 +5,7 @@ import re
 from isaac.identity.soul import get_soul, uses_selene_identity
 
 _REQUEST = (
-    r"(?:what|who|why|when|where|how|can|could|would|please|tell|show|help|"
+    r"(?:what|who|why|when|where|how|can|could|would|please|tell|show|help|explain|stop|"
     r"como|qual|quem|o\s+que|voc[eê]|pod(?:e|eria)|por\s+favor|me|tudo)\b"
 )
 _ADDRESS = re.compile(
