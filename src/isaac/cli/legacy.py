@@ -57,6 +57,9 @@ def _setup_logging(verbose: bool = False) -> None:
 
 if TYPE_CHECKING or typer is not None:
     assert app is not None
+    from isaac.cli.projects import app as project_app
+
+    app.add_typer(project_app, name="projects")
 
     @app.command()
     def run(
