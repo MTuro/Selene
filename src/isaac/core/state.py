@@ -232,6 +232,7 @@ class IsaacState(TypedDict, total=False):
     verified_success: bool | None
     messages: Annotated[list[BaseMessage], add_messages]
     response_language: str
+    project_result: dict[str, Any]
     voice_session: bool
     world_model: Annotated[WorldModel, _replace]
     hypothesis: Annotated[str, _replace]

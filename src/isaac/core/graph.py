@@ -147,7 +147,14 @@ def build_graph() -> Any:
     )
 
     # Entry: Guard → {MultimodalInput | Perception | END}
-    graph.set_entry_point(_GUARD)
+    from isaac.nodes.project import handles, project_node
+
+    add_node("project", project_node)
+    graph.set_conditional_entry_point(
+        lambda state: "project" if handles(state) else _GUARD,
+        {"project": "project", _GUARD: _GUARD},
+    )
+    graph.add_edge("project", END)
     graph.add_conditional_edges(
         _GUARD,
         after_guard_multimodal,

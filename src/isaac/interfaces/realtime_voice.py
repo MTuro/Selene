@@ -51,6 +51,9 @@ def _metric(turn_id: str, metric: str, duration_s: float) -> None:
 @dataclass
 class Turn:
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    spoken_command: str = ""
+    approval: Any = None
+    offer: Any = None
     phase: Phase = Phase.LISTENING
     interrupted_at: float | None = None
     is_barge_in: bool = False
@@ -158,8 +161,9 @@ class VoiceSession:
         return self._playing is not None or time.monotonic() < self._echo_until
 
     def start_utterance(self, detected_at: float | None = None) -> Turn:
+        approval = self.active.offer if self.active and self.active.phase == Phase.IDLE else None
         self._invalidate(detected_at)
-        self.active = Turn()
+        self.active = Turn(approval=approval)
         return self.active
 
     def discard_capture(self, turn: Turn) -> None:
@@ -187,6 +191,8 @@ class VoiceSession:
     def _invalidate(self, detected_at: float | None = None) -> None:
         self._pending = None
         turn = self.active
+        if turn is not None:
+            turn.offer = turn.approval = None
         if turn is None or turn.phase in {Phase.IDLE, Phase.INTERRUPTED}:
             return
         turn.interrupted_at = detected_at if detected_at is not None else time.monotonic()
@@ -211,6 +217,7 @@ class VoiceSession:
             except VoiceTurnInterrupted:
                 pass
             except Exception as exc:
+                turn.offer = None
                 if turn.interrupted_at is None:
                     self.report(f"[ERROR] {str(exc) or type(exc).__name__}")
             finally:
@@ -239,7 +246,9 @@ class VoiceSession:
                 self.report(f"Address recognized: {normalized}")
             user_text = normalized
             command = strip_selene_address(user_text)
+        turn.spoken_command = command.strip()
         if stop := _STOP.match(command):
+            turn.approval = None
             user_text = command[stop.end() :].strip()
             if not user_text:
                 return
@@ -276,6 +285,8 @@ class VoiceSession:
                 "I'm here, but I have nothing to say about that.",
             )
             reply = enforce_speaking_identity(reply)
+            if details := result.pop("project_result", None):
+                self.report(json.dumps(details, ensure_ascii=True))
             self.state = result
             _metric(turn.id, "reply_text_ready", time.monotonic() - turn.generation_started)
             self.report(f"[{self.name}] {reply}\n")
