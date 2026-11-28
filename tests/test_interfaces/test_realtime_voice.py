@@ -138,6 +138,8 @@ async def test_docker_is_interrupted_and_kubernetes_answers_via_compiled_graph(m
     assert {event["event"] for event in metrics} == {
         "speech_endpoint",
         "stt_transcription",
+        "response_latency",
+        "tts_first_audio_ready",
         "first_llm_token",
         "first_tts_segment",
         "reply_text_ready",
@@ -397,3 +399,45 @@ async def test_two_consecutive_audible_replies_can_be_interrupted():
 
     assert aborted == ["Answer one.", "Answer two."]
     assert asyncio.all_tasks() == tasks_before
+
+
+@pytest.mark.parametrize(
+    ("question", "answer", "model_calls"),
+    [
+        ("can you hear me?", "Yes, I can hear you.", 0),
+        ("what is your name?", "My name is SELENE.", 0),
+        ("explain what Python is.", "Python is a programming language.", 1),
+        ("explain neural networks in two sentences.", "They learn patterns. Layers transform inputs.", 1),
+    ],
+)
+async def test_conversation_uses_direct_voice_route(monkeypatch, question, answer, model_calls):
+    from langchain_core.messages import AIMessageChunk
+    from isaac.config.settings import get_settings
+    from isaac.core import graph
+    from isaac.core.state import make_initial_state
+
+    monkeypatch.setattr(get_settings(), "identity_profile", "selene")
+    monkeypatch.setattr(graph, "guard_node", lambda _: {"guard_blocked": False})
+    def unexpected(*args, **kwargs):
+        pytest.fail("Conversational request reached classification or exploration")
+    monkeypatch.setattr("isaac.llm.provider.get_perception_llm", unexpected)
+    monkeypatch.setattr(graph, "explorer_node", unexpected)
+    calls = []
+    class Model:
+        async def astream(self, prompt):
+            assert "English only" in prompt[0].content
+            calls.append(prompt)
+            yield AIMessageChunk(content=answer)
+    monkeypatch.setattr("isaac.llm.provider.get_direct_response_llm", Model)
+    spoken = []
+    async def synthesize(text):
+        return text
+    async def play(segment, on_start):
+        on_start()
+        spoken.append(segment)
+    state = dict(make_initial_state(), response_language="English only", voice_session=True)
+    session = VoiceSession(graph.build_graph(),state,str,synthesize,play,lambda _:None)
+    session.submit(session.start_utterance(), "Selene, " + question, 0.3)
+    await asyncio.wait_for(session.wait(), 3)
+    assert " ".join(spoken) == answer
+    assert len(calls) == model_calls

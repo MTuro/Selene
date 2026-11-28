@@ -51,7 +51,8 @@ class TestPerceptionNode:
         # Should degrade gracefully
         assert result["current_phase"] == "perception"
         wm: WorldModel = result["world_model"]
-        assert len(wm.observations) > 0  # raw response captured
+        assert not wm.observations
+        assert result["task_mode"] == "direct"
 
     # ------------------------------------------------------------------
     # Multimodal input (Computer-Use path)

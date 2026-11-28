@@ -92,6 +92,8 @@ def run_voice_repl(hands_free: bool = False) -> int:
         logging.getLogger(noisy).setLevel(logging.WARNING)
     logging.getLogger("isaac.interfaces.realtime_voice").setLevel(logging.INFO)
 
+    logging.getLogger("isaac.nodes.perception").setLevel(logging.INFO)
+
     from isaac.config.settings import get_settings
     from isaac.multimodal.voice import is_stt_available, is_tts_available
     from isaac.multimodal.voice.audio_io import capture_utterances, is_audio_available, play_pcm
