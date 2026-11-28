@@ -134,3 +134,30 @@ class TestPerceptionNode:
             result = perception_node(state)
 
         assert result["current_phase"] == "perception"
+
+
+def test_reasoning_metadata_and_schema_validation(caplog):
+    from unittest.mock import Mock
+
+    from langchain_core.messages import AIMessage
+
+    from isaac.core.transitions import after_perception
+
+    state = make_initial_state()
+    state["messages"] = [HumanMessage(content="An ambiguous request requiring interpretation")]
+    private = "sensitive intermediate reasoning"
+    for content in (
+        '{"task_mode":"invalid"}',
+        "[]",
+        private,
+        '{"observations":[],"hypothesis":"answer","task_mode":"direct"}',
+    ):
+        message = AIMessage(content=content, additional_kwargs={"reasoning_content": private})
+        with patch(
+            "isaac.llm.provider.get_perception_llm",
+            return_value=Mock(invoke=Mock(return_value=message)),
+        ):
+            result = perception_node(state)
+        assert after_perception(result) == "direct_response"
+        assert private not in str(result)
+        assert private not in caplog.text
