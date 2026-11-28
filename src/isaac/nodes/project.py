@@ -98,7 +98,6 @@ def project_node(state):
             else:
                 if tool not in project["operations"] or not project["command"]:
                     raise PermissionError
-                turn.offer = Proposal.create(turn, session, project)
                 audit(
                     "approval",
                     "project_proposed",
@@ -109,6 +108,8 @@ def project_node(state):
                         "argv": project["command"],
                     },
                 )
+                turn.check()
+                turn.offer = Proposal.create(turn, session, project)
                 reply = (
                     f"Run {' '.join(project['command'])} in the sandbox for {project['name']} "
                     f"at {project['root']}? Say confirm tests to approve."

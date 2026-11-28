@@ -53,3 +53,4 @@ class Proposal:
             "project_confirmed",
             details={"tool": tool, "project": self.project, "origin": self.origin, "turn": turn.id},
         )
+        turn.check()

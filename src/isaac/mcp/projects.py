@@ -175,6 +175,8 @@ def execute(tool, args, *, confirmation=None, session=""):
                             data = read_regular(parent, path.name, 1 << 20)
                         if b"\x00" in data:
                             raise ValueError("Binary file")
+                        if b"PRIVATE KEY-----" in data:
+                            raise PermissionError("File contains private key material")
                         lines = redact_secrets(data.decode()).splitlines()
                         selected = "\n".join(lines[start - 1 : end])
                         result = dict(
