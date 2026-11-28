@@ -161,3 +161,18 @@ def test_reasoning_metadata_and_schema_validation(caplog):
         assert after_perception(result) == "direct_response"
         assert private not in str(result)
         assert private not in caplog.text
+
+
+def test_native_qwen_decoding_policy():
+    from langchain_ollama import ChatOllama
+
+    from isaac.llm import provider
+    from isaac.llm.perception_schema import PerceptionResult
+
+    with patch.object(provider, "_capped_llm", return_value=ChatOllama(model="qwen3:4b")):
+        classify = provider.get_perception_llm.__wrapped__()
+        answer = provider.get_direct_response_llm.__wrapped__()
+    assert classify.reasoning is False
+    assert classify.format == PerceptionResult.model_json_schema()
+    assert answer.reasoning is True
+    assert answer.num_predict == 2048

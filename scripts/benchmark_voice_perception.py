@@ -19,9 +19,10 @@ for request in [
     "explain neural networks in two sentences.",
 ]:
     times = []
-    for i in range(6):
+    for _ in range(6):
         state = make_initial_state()
-        state.update(voice_session=True, messages=[HumanMessage(content="Selene, " + request)])
+        state["voice_session"] = True
+        state["messages"] = [HumanMessage(content="Selene, " + request)]
         t = perf_counter()
         result = perception_node(state)
         times.append((perf_counter() - t) * 1000)

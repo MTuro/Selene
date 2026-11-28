@@ -58,16 +58,13 @@ def _build_direct_prompt(
         "If they ask a knowledge question, answer it directly.  "
         "Keep responses under 200 words unless the topic demands more."
     )
+    if spoken:
+        system_content = f"{soul}\nGive a brief spoken answer in plain language."
     if response_language:
         system_content += f" Reply in {response_language}."
-    if spoken:
-        system_content += (
-            " Start with a complete sentence of 12 words or fewer that answers the question."
-            " Elaborate in short sentences using plain speech."
-        )
     messages: list[Any] = [SystemMessage(content=system_content)]
 
-    if hypothesis:
+    if hypothesis and not spoken:
         messages.append(SystemMessage(content=f"Context from perception: {hypothesis[:300]}"))
 
     messages.extend((history or [])[-10:])
@@ -124,6 +121,8 @@ async def async_direct_response_node(state: IsaacState) -> dict[str, Any]:
                         parts.append(token)
                         await turn.token(token)
         answer = "".join(parts)
+        if not answer.strip():
+            raise ValueError("The model finished without producing a spoken answer.")
     return {
         "messages": [AIMessage(content=enforce_speaking_identity(answer))],
         "current_phase": "direct_response",

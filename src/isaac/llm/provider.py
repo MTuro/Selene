@@ -220,7 +220,9 @@ def get_direct_response_llm() -> BaseChatModel:
         getattr(model, "_llm_type", None) == "chat-ollama"
         and getattr(model, "model", "").split(":")[0] == "qwen3"
     ):
-        return model.model_copy(update={"reasoning": False})
+        # Qwen3 can emit its deliberation as ordinary content with think=False.
+        # Request separate reasoning metadata and reserve room for the public answer.
+        return model.model_copy(update={"reasoning": True, "num_predict": 2048})
     return model
 
 

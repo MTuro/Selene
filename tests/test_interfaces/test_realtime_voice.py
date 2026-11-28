@@ -72,7 +72,7 @@ async def test_docker_is_interrupted_and_kubernetes_answers_via_compiled_graph(m
     class Model:
         async def astream(self, prompt):
             assert "English only" in prompt[0].content
-            assert "complete sentence of 12 words or fewer" in prompt[0].content
+            assert "brief spoken answer" in prompt[0].content
             question = prompt[-1].content
             questions.append(question)
             if "Docker" in question:
