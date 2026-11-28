@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict, replace
+from functools import partial
 from pathlib import Path
 from typing import Any
+
+from isaac.mcp import projects
 
 logger = logging.getLogger(__name__)
 
@@ -427,6 +430,11 @@ _HANDLERS = {
     "isaac_spawn_subagent": _handle_spawn_subagent,
     "isaac_meta_stats": _handle_meta_stats,
 }
+
+
+for schema in projects.schemas():
+    TOOL_SCHEMAS.append(schema)
+    _HANDLERS[schema["name"]] = partial(projects.execute, schema["name"])
 
 
 def call_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:

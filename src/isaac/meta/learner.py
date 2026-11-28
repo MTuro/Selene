@@ -26,6 +26,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _SCHEMA = """
+CREATE TABLE IF NOT EXISTS project_experiences (
+    id INTEGER PRIMARY KEY, ts TEXT NOT NULL, project TEXT NOT NULL, tool TEXT NOT NULL,
+    session TEXT NOT NULL, duration_ms REAL NOT NULL, executed_ok INTEGER NOT NULL,
+    result TEXT NOT NULL, fulfilled INTEGER, feedback TEXT
+);
 CREATE TABLE IF NOT EXISTS task_outcomes (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     ts          TEXT NOT NULL,
@@ -117,6 +122,57 @@ class MetaLearner:
                 ),
             )
             self._update_scores(task_type, strategy, success, duration_ms)
+
+    def observe_project(self, project, tool, session, duration_ms, executed_ok, result):
+        """Persist a bounded observation without assigning a strategy score."""
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "INSERT INTO project_experiences "
+                "(ts,project,tool,session,duration_ms,executed_ok,result) VALUES (?,?,?,?,?,?,?)",
+                (
+                    datetime.now(UTC).isoformat(),
+                    project,
+                    tool,
+                    session,
+                    duration_ms,
+                    int(executed_ok),
+                    result,
+                ),
+            )
+            return cursor.lastrowid
+
+    def project_history(self, project):
+        """Recall recent observations for this registration without embeddings."""
+        with self._lock:
+            return [
+                dict(row)
+                for row in self._conn.execute(
+                    "SELECT * FROM project_experiences WHERE project=? ORDER BY id DESC LIMIT 20",
+                    (project,),
+                )
+            ]
+
+    def verify_project(self, project, experience, fulfilled, feedback=""):
+        """Score a local operator's explicit assessment exactly once."""
+        from isaac.security.redact import redact_secrets
+
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "UPDATE project_experiences SET fulfilled=?, feedback=? "
+                "WHERE id=? AND project=? AND fulfilled IS NULL RETURNING *",
+                (int(fulfilled), redact_secrets(feedback)[:500], experience, project),
+            ).fetchone()
+            if row is None:
+                raise ValueError("Unknown or previously verified experience")
+            self.record(
+                task_desc=f"{row['tool']} for {project}",
+                task_type="project_development",
+                strategy=row["tool"],
+                success=fulfilled,
+                duration_ms=row["duration_ms"],
+                error_msg=row["feedback"],
+                session_id=row["session"],
+            )
 
     def _update_scores(
         self, task_type: str, strategy: str, success: bool, duration_ms: float
