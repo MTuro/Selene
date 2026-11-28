@@ -678,6 +678,7 @@ isaac models use good          # prints the .env block to paste
 | `isaac team "goal"` | Specialist team (manager + specialists) |
 | `isaac run` | Rich text REPL |
 | `isaac voice [--hands-free]` | Voice REPL |
+| `isaac projects` | Register local projects, set operation permissions and review verified experience. [Project tool guide](docs/PROJECT_TOOLS.md) |
 | `isaac vision <path> --prompt "..."` | Vision query |
 | `isaac improve [--report]` | Run self-improvement cycle |
 | `isaac trace [run_id]` | Inspect past runs |
