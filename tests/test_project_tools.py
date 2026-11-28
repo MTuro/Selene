@@ -130,7 +130,7 @@ def test_graph_requests(project, service, monkeypatch):
     import json
 
     from isaac.core.graph import build_graph
-    from isaac.interfaces.realtime_voice import Phase, VoiceSession
+    from isaac.interfaces.realtime_voice import VoiceSession
     from isaac.mcp import projects
 
     runs = []
@@ -163,15 +163,40 @@ def test_graph_requests(project, service, monkeypatch):
         await say("cancel")
         await say("confirm tests")
         assert not runs
-        await say("run tests for Tapyr")
-        session.active.phase = Phase.SPEAKING
+        playback = asyncio.Event()
+
+        async def synthesize(text):
+            return text
+
+        async def play(audio, started):
+            started()
+            if "sandbox" in audio:
+                playback.set()
+                await asyncio.Event().wait()
+
+        session.synthesize = synthesize
+        session.play = play
+        prompt = session.start_utterance()
+        session.submit(prompt, "run tests for Tapyr", None)
+        await asyncio.wait_for(playback.wait(), timeout=5)
         await say("confirm tests")
+        assert prompt.interrupted_at is not None
+        session.synthesize = None
         assert not runs
         await say("run tests for Tapyr")
         await say("confirm tests")
         assert runs == [project["command"]]
         assert any(json.loads(r).get("exit_code") == 0 for r in reports if r.startswith("{"))
         await say("confirm tests")
+        assert len(runs) == 1
+
+        def reject_audit(*args, **kwargs):
+            raise PermissionError("Audit unavailable")
+
+        monkeypatch.setattr("isaac.nodes.project.audit", reject_audit)
+        await say("run tests for Tapyr")
+        await say("confirm tests")
+        assert "no pending test request" in reports[-1]
         assert len(runs) == 1
         await session.close()
 
