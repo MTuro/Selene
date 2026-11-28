@@ -784,3 +784,5 @@ ISAAC_MODEL_NAME=qwen3:4b python scripts/benchmark_voice_perception.py
 ```
 
 Perception requests a JSON schema from native Ollama and validates the final answer locally. Qwen3 classification disables thinking by default. Set ISAAC_PERCEPTION_THINKING=true to enable it within the same 200-token budget.
+
+Hands-free capture stores the playback gate with each microphone frame. This prevents speech captured before playback from being judged against the louder barge-in threshold when the reader catches up. The reader drains buffered frames on disconnect and reports overruns. A sustained utterance can still be missed if the input level is too low, the driver drops samples or STT returns an empty transcript. Onset and energy thresholds were preserved. The voice log includes the VAD confirmation window, endpoint delay, STT time, model time to first answer token, reply-text time, first synthesized segment time and end-of-speech to first playback. The latter includes endpointing when the detector supplies that measurement.

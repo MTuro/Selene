@@ -369,7 +369,7 @@ async def capture_utterances(
     ) as stream:
         last_frame = time.monotonic()
         reported = 0
-        while stream.active and (frames or time.monotonic() - last_frame < 1.5):
+        while frames or (stream.active and time.monotonic() - last_frame < 1.5):
             if reported != dropped:
                 logger.warning("Microphone capture overruns: %d", dropped)
                 reported = dropped
