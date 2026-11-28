@@ -51,11 +51,16 @@ def _metric(turn_id: str, metric: str, duration_s: float) -> None:
 @dataclass
 class Turn:
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    spoken_command: str = ""
+    approval: Any = None
+    offer: Any = None
     phase: Phase = Phase.LISTENING
     interrupted_at: float | None = None
     is_barge_in: bool = False
     generation_task: asyncio.Task[Any] | None = None
     speech_task: asyncio.Task[None] | None = None
+    submitted_at: float = 0
+    stream_started: float = 0
     generation_started: float = 0
     first_token: bool = False
     first_audio: bool = False
@@ -71,6 +76,7 @@ class Turn:
     def generation(self) -> Iterator[None]:
         """Attach cancellation only during speech-producing LLM generation."""
         self.check()
+        self.stream_started = time.monotonic()
         self.generation_task = asyncio.current_task()
         try:
             yield
@@ -84,7 +90,7 @@ class Turn:
         self.check()
         if not self.first_token:
             self.first_token = True
-            _metric(self.id, "first_llm_token", time.monotonic() - self.generation_started)
+            _metric(self.id, "first_llm_token", time.monotonic() - self.stream_started)
         await self._segment(text)
 
     async def finish(self, fallback: str) -> None:
@@ -158,8 +164,9 @@ class VoiceSession:
         return self._playing is not None or time.monotonic() < self._echo_until
 
     def start_utterance(self, detected_at: float | None = None) -> Turn:
+        approval = self.active.offer if self.active and self.active.phase == Phase.IDLE else None
         self._invalidate(detected_at)
-        self.active = Turn()
+        self.active = Turn(approval=approval)
         return self.active
 
     def discard_capture(self, turn: Turn) -> None:
@@ -171,6 +178,7 @@ class VoiceSession:
             return
         if endpoint_latency_s is not None:
             _metric(turn.id, "speech_endpoint", endpoint_latency_s)
+        turn.submitted_at = time.monotonic() - (endpoint_latency_s or 0)
         turn.phase = Phase.TRANSCRIBING
         self._pending = (turn, audio)
         if self._worker is None or self._worker.done():
@@ -187,6 +195,8 @@ class VoiceSession:
     def _invalidate(self, detected_at: float | None = None) -> None:
         self._pending = None
         turn = self.active
+        if turn is not None:
+            turn.offer = turn.approval = None
         if turn is None or turn.phase in {Phase.IDLE, Phase.INTERRUPTED}:
             return
         turn.interrupted_at = detected_at if detected_at is not None else time.monotonic()
@@ -211,6 +221,7 @@ class VoiceSession:
             except VoiceTurnInterrupted:
                 pass
             except Exception as exc:
+                turn.offer = None
                 if turn.interrupted_at is None:
                     self.report(f"[ERROR] {str(exc) or type(exc).__name__}")
             finally:
@@ -239,7 +250,9 @@ class VoiceSession:
                 self.report(f"Address recognized: {normalized}")
             user_text = normalized
             command = strip_selene_address(user_text)
+        turn.spoken_command = command.strip()
         if stop := _STOP.match(command):
+            turn.approval = None
             user_text = command[stop.end() :].strip()
             if not user_text:
                 return
@@ -276,6 +289,8 @@ class VoiceSession:
                 "I'm here, but I have nothing to say about that.",
             )
             reply = enforce_speaking_identity(reply)
+            if details := result.pop("project_result", None):
+                self.report(json.dumps(details, ensure_ascii=True))
             self.state = result
             _metric(turn.id, "reply_text_ready", time.monotonic() - turn.generation_started)
             self.report(f"[{self.name}] {reply}\n")
@@ -308,6 +323,8 @@ class VoiceSession:
             while turn.interrupted_at is None and (text := await segments.get()) is not None:
                 if turn.audio_failed:
                     continue
+                synthesis_start = time.monotonic()
+                initial = first_segment
                 if first_segment:
                     first_segment = False
                     _metric(
@@ -323,6 +340,8 @@ class VoiceSession:
                     continue
                 if turn.interrupted_at is not None:
                     return
+                if initial:
+                    _metric(turn.id, "tts_first_audio_ready", time.monotonic() - synthesis_start)
                 await ready.put(audio)
             if turn.interrupted_at is None:
                 await ready.put(None)
@@ -338,6 +357,9 @@ class VoiceSession:
                         turn.phase = Phase.SPEAKING
                         if not turn.first_audio:
                             turn.first_audio = True
+                            _metric(
+                                turn.id, "response_latency", time.monotonic() - turn.submitted_at
+                            )
                             _metric(
                                 turn.id,
                                 "first_spoken_audio",
@@ -378,6 +400,8 @@ async def listen_hands_free(
                 async for event in microphone():
                     if event.audio is None:
                         turn = session.start_utterance(event.at)
+                        if event.onset_latency_s is not None:
+                            _metric(turn.id, "vad_onset_window", event.onset_latency_s)
                     elif turn is not None:
                         session.submit(turn, event.audio, event.endpoint_latency_s)
                         turn = None

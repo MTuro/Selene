@@ -9,6 +9,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — 2026-11-20
 
+- SELENE can inspect explicitly registered development projects, run fixed test suites after voice confirmation, and recall operator-verified outcomes. [Project tool guide](docs/PROJECT_TOOLS.md)
+
 - The SELENE identity accepts Portuguese and English input, replies in English
   with Thalita, and preserves the original I.S.A.A.C. profile. The voice REPL
   shows the raw transcript and continues in text when speech fails.

@@ -11,13 +11,15 @@ generate a novel that we discard anyway.
 
 from __future__ import annotations
 
-import json
 import logging
+import time
 from typing import Any
 
 from langchain_core.messages import HumanMessage
+from pydantic import ValidationError
 
 from isaac.core.state import GUIState, IsaacState, WorldModel
+from isaac.llm.perception_schema import PerceptionResult
 from isaac.llm.prompts import perception_multimodal_prompt, perception_prompt
 from isaac.memory.world_model import merge_observations
 from isaac.nodes.classifier import classify_hypothesis, fast_classify
@@ -70,6 +72,7 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
     Fast path: uses ``fast_classify()`` (< 1 ms) for obvious inputs.
     Fall-through: invokes LLM with a 200-token cap for ambiguous inputs.
     """
+    started = time.monotonic()
     # -- Extract latest user message ----------------------------------------
     messages = state.get("messages", [])
     user_text = ""
@@ -87,25 +90,27 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
 
     # === FAST PATH: heuristic classifier (zero LLM cost) ===================
     if not screenshot_b64:
-        from isaac.identity.address import selene_identity_reply, strip_selene_address
+        from isaac.identity.address import fixed_conversation_reply, strip_selene_address
         from isaac.identity.soul import uses_selene_identity
 
         request = strip_selene_address(user_text) if uses_selene_identity() else user_text
-        identity_question = selene_identity_reply(user_text) is not None
+        fixed_reply = (
+            fixed_conversation_reply(user_text, state.get("voice_session", False)) is not None
+        )
         task_mode_hint, confidence = (
-            ("direct", 1.0) if identity_question else fast_classify(request or user_text)
+            ("direct", 1.0) if fixed_reply else fast_classify(request or user_text)
         )
         if task_mode_hint is not None and confidence >= 0.85:
             hypothesis = (
-                "The user asks about the assistant's identity."
-                if identity_question
+                "The request has a fixed conversational reply."
+                if fixed_reply
                 else classify_hypothesis(request or user_text, task_mode_hint)
             )
-            logger.debug(
-                "Perception (fast): mode=%s conf=%.2f input=%r",
+            logger.info(
+                "Perception (fast): mode=%s conf=%.2f latency_ms=%.2f",
                 task_mode_hint,
                 confidence,
-                user_text[:60],
+                1000 * (time.monotonic() - started),
             )
             return {
                 "world_model": world_model,
@@ -159,38 +164,27 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
         prompt = perception_prompt(user_text, world_model, context)
 
     response = llm.invoke(prompt)
-    content = response.content if isinstance(response.content, str) else str(response.content)
-
-    # -- Parse structured JSON from response --------------------------------
-    observations: list[str] = []
-    hypothesis = ""
-    task_mode = "code"
-    confidence = 0.6
-    gui_meta: dict[str, Any] = {}
+    content = response.content if isinstance(response.content, str) else response.text()
     try:
-        cleaned = content.strip()
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1]
-            cleaned = cleaned.rsplit("```", 1)[0]
-        parsed = json.loads(cleaned)
-        observations = parsed.get("observations", [])
-        hypothesis = parsed.get("hypothesis", "")
-        task_mode = parsed.get("task_mode", "code")
-        raw_confidence = parsed.get("confidence")
-        if isinstance(raw_confidence, (int, float)) and not isinstance(raw_confidence, bool):
-            confidence = min(1.0, max(0.0, float(raw_confidence)))
-        gui_meta = {
-            k: parsed[k]
-            for k in ("active_window_title", "current_url", "screen_width", "screen_height")
-            if k in parsed
-        }
-    except (json.JSONDecodeError, IndexError, AttributeError):
-        logger.error("Perception: failed to parse LLM response as JSON.")
-        observations = [f"Raw LLM response: {content[:500]}"]
-        hypothesis = content[:200]
-        confidence = 0.4
-        if screenshot_b64:
-            task_mode = "computer_use"
+        parsed = PerceptionResult.model_validate_json(content, strict=True)
+        observations = parsed.observations
+        hypothesis = parsed.hypothesis
+        task_mode = parsed.task_mode
+        confidence = parsed.confidence
+        gui_meta = parsed.model_dump(
+            include={"active_window_title", "current_url", "screen_width", "screen_height"},
+            exclude_none=True,
+        )
+    except ValidationError as exc:
+        logger.warning(
+            "Perception returned invalid structured output (%s, %d chars); routing direct",
+            exc.errors(include_input=False)[0]["type"],
+            len(content),
+        )
+        observations = []
+        hypothesis = "Respond conversationally. Ask for clarification if the request needs action."
+        task_mode = "direct"
+        confidence = 0.0
 
     # -- Update world model -------------------------------------------------
     updated_world = merge_observations(world_model, observations)
@@ -213,9 +207,10 @@ def perception_node(state: IsaacState) -> dict[str, Any]:
         )
 
     logger.info(
-        "Perception (LLM): %d observations, mode=%s",
+        "Perception (LLM): %d observations, mode=%s latency_ms=%.2f",
         len(observations),
         task_mode,
+        1000 * (time.monotonic() - started),
     )
 
     return {

@@ -59,3 +59,10 @@ def selene_identity_reply(text: str) -> str | None:
     if _NAMER_QUESTION.fullmatch(question):
         return f"{get_soul()['named_by']} named me Selene."
     return None
+
+
+def fixed_conversation_reply(text: str, voice: bool) -> str | None:
+    """Answer exact voice connectivity checks and identity questions locally."""
+    if voice and strip_selene_address(text.strip()).casefold().rstrip("?.!") == "can you hear me":
+        return "Yes, I can hear you."
+    return selene_identity_reply(text)

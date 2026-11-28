@@ -51,7 +51,8 @@ class TestPerceptionNode:
         # Should degrade gracefully
         assert result["current_phase"] == "perception"
         wm: WorldModel = result["world_model"]
-        assert len(wm.observations) > 0  # raw response captured
+        assert not wm.observations
+        assert result["task_mode"] == "direct"
 
     # ------------------------------------------------------------------
     # Multimodal input (Computer-Use path)
@@ -133,3 +134,45 @@ class TestPerceptionNode:
             result = perception_node(state)
 
         assert result["current_phase"] == "perception"
+
+
+def test_reasoning_metadata_and_schema_validation(caplog):
+    from unittest.mock import Mock
+
+    from langchain_core.messages import AIMessage
+
+    from isaac.core.transitions import after_perception
+
+    state = make_initial_state()
+    state["messages"] = [HumanMessage(content="An ambiguous request requiring interpretation")]
+    private = "sensitive intermediate reasoning"
+    for content in (
+        '{"task_mode":"invalid"}',
+        "[]",
+        private,
+        '{"observations":[],"hypothesis":"answer","task_mode":"direct"}',
+    ):
+        message = AIMessage(content=content, additional_kwargs={"reasoning_content": private})
+        with patch(
+            "isaac.llm.provider.get_perception_llm",
+            return_value=Mock(invoke=Mock(return_value=message)),
+        ):
+            result = perception_node(state)
+        assert after_perception(result) == "direct_response"
+        assert private not in str(result)
+        assert private not in caplog.text
+
+
+def test_native_qwen_decoding_policy():
+    from langchain_ollama import ChatOllama
+
+    from isaac.llm import provider
+    from isaac.llm.perception_schema import PerceptionResult
+
+    with patch.object(provider, "_capped_llm", return_value=ChatOllama(model="qwen3:4b")):
+        classify = provider.get_perception_llm.__wrapped__()
+        answer = provider.get_direct_response_llm.__wrapped__()
+    assert classify.reasoning is False
+    assert classify.format == PerceptionResult.model_json_schema()
+    assert answer.reasoning is True
+    assert answer.num_predict == 2048

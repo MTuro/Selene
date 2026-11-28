@@ -23,7 +23,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from isaac.core.state import IsaacState
 from isaac.core.voice_turn import check_voice_turn, current_voice_turn
-from isaac.identity.address import selene_identity_reply
+from isaac.identity.address import fixed_conversation_reply
 from isaac.identity.soul import assistant_name, enforce_speaking_identity, uses_selene_identity
 
 if TYPE_CHECKING:
@@ -58,16 +58,13 @@ def _build_direct_prompt(
         "If they ask a knowledge question, answer it directly.  "
         "Keep responses under 200 words unless the topic demands more."
     )
+    if spoken:
+        system_content = f"{soul}\nGive a brief spoken answer in plain language."
     if response_language:
         system_content += f" Reply in {response_language}."
-    if spoken:
-        system_content += (
-            " Start with a complete sentence of 12 words or fewer that answers the question."
-            " Elaborate in short sentences using plain speech."
-        )
     messages: list[Any] = [SystemMessage(content=system_content)]
 
-    if hypothesis:
+    if hypothesis and not spoken:
         messages.append(SystemMessage(content=f"Context from perception: {hypothesis[:300]}"))
 
     messages.extend((history or [])[-10:])
@@ -95,7 +92,7 @@ async def async_direct_response_node(state: IsaacState) -> dict[str, Any]:
 
     check_voice_turn()
     user_text, history = _latest_question(state)
-    answer = selene_identity_reply(user_text)
+    answer = fixed_conversation_reply(user_text, state.get("voice_session", False))
     if not answer:
         # The existing provider factory performs a synchronous Ollama preflight.
         llm = await asyncio.to_thread(get_direct_response_llm)
@@ -124,6 +121,8 @@ async def async_direct_response_node(state: IsaacState) -> dict[str, Any]:
                         parts.append(token)
                         await turn.token(token)
         answer = "".join(parts)
+        if not answer.strip():
+            raise ValueError("The model finished without producing a spoken answer.")
     return {
         "messages": [AIMessage(content=enforce_speaking_identity(answer))],
         "current_phase": "direct_response",
@@ -152,7 +151,7 @@ def direct_response_node(state: IsaacState) -> dict[str, Any]:
     selene = uses_selene_identity()
     show = not state.get("voice_session", False)
     name = assistant_name()
-    if answer := selene_identity_reply(user_text):
+    if answer := fixed_conversation_reply(user_text, state.get("voice_session", False)):
         if show:
             if ui is not None:
                 ui.start_stream()

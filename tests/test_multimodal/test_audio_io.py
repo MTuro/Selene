@@ -151,3 +151,42 @@ def test_barge_in_accepts_quiet_speech_with_one_gap_at_default_sensitivity():
         assert feed(level) is None
     onset = feed(0.015)
     assert onset is not None and onset.audio is None
+
+
+async def test_buffered_speech_retains_capture_time_echo_gate(monkeypatch):
+    from isaac.multimodal.voice import audio_io
+
+    playing = False
+
+    class Stream:
+        active = False
+
+        def __init__(self, callback, **kwargs):
+            self.receive = callback
+
+        def __enter__(self):
+            nonlocal playing
+            for _ in range(6):
+                self.receive(np.full((480, 1), 0.012, dtype=np.float32), 480, None, False)
+            playing = True
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setitem(sys.modules, "sounddevice", SimpleNamespace(InputStream=Stream))
+    monkeypatch.setattr(audio_io, "_webrtc_detector", lambda _: lambda frame: True)
+    settings = SimpleNamespace(
+        voice_vad_mode=2,
+        voice_vad_energy=0.005,
+        voice_barge_in_energy=0.025,
+        voice_vad_onset_frames=3,
+        voice_barge_in_onset_frames=4,
+        voice_vad_silence_s=0.6,
+    )
+    capture = audio_io.capture_utterances(lambda: playing, settings)
+    try:
+        onset = await anext(capture)
+        assert onset.onset_latency_s == pytest.approx(0.09)
+    finally:
+        await capture.aclose()

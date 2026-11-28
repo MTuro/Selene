@@ -233,3 +233,25 @@ def classify_hypothesis(text: str, task_mode: TaskMode) -> str:
         return f"User asks a knowledge question: '{stripped[:80]}'. Answer directly and concisely."
 
     return f"User sent a short message: '{stripped[:80]}'. Respond naturally."
+
+
+def requested_web_query(messages) -> str:
+    """Extract an affirmative online research request from the latest human turn."""
+    from langchain_core.messages import HumanMessage
+
+    from isaac.identity.address import strip_selene_address
+
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            if not isinstance(message.content, str):
+                return ""
+            request = strip_selene_address(message.content.strip())
+            match = re.fullmatch(
+                r"(?:(?:can|could|would) you )?(?:please )?"
+                r"(?:search (?:the (?:web|internet)|online)(?: for)?|"
+                r"look up online|find online|research|google) (.+)",
+                request,
+                re.IGNORECASE,
+            )
+            return match[1].strip() if match else ""
+    return ""

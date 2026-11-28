@@ -678,6 +678,7 @@ isaac models use good          # prints the .env block to paste
 | `isaac team "goal"` | Specialist team (manager + specialists) |
 | `isaac run` | Rich text REPL |
 | `isaac voice [--hands-free]` | Voice REPL |
+| `isaac projects` | Register local projects, set operation permissions and review verified experience. [Project tool guide](docs/PROJECT_TOOLS.md) |
 | `isaac vision <path> --prompt "..."` | Vision query |
 | `isaac improve [--report]` | Run self-improvement cycle |
 | `isaac trace [run_id]` | Inspect past runs |
@@ -769,3 +770,21 @@ See [NOTICE](NOTICE) for copyright information. Previously published releases re
 - [NetworkX](https://networkx.org/) — knowledge graphs
 - [ChromaDB](https://www.trychroma.com/) — vector storage
 - [Tauri](https://tauri.app/) — desktop app framework
+
+### Voice routing measurements
+
+On the local qwen3:4b setup, the median Perception time for “Selene, can you hear me?” was 1,671.930 ms on main (1358229) and 0.056 ms with the voice connectivity reply. All six baseline calls produced malformed classifier output and selected code. The fixed route selected direct without a model call. The name, Python and neural-network prompts were already direct. Their respective medians were 0.105, 0.112 and 0.116 ms on main and 0.097, 0.118 and 0.116 ms on the feature branch.
+
+These timings cover Perception only. To repeat, use the same interpreter, already-running local model, script and environment for both source trees. Set SOURCE_TREE to the checkout being measured. The script discards one warm-up and reports five-run medians.
+
+```bash
+PYTHONPATH="$SOURCE_TREE/src" ISAAC_HOME="$(mktemp -d)" HF_HUB_OFFLINE=1 \
+ISAAC_IDENTITY_PROFILE=selene ISAAC_LLM_PROVIDER=ollama ISAAC_FAST_MODEL=qwen3:4b \
+ISAAC_MODEL_NAME=qwen3:4b python scripts/benchmark_voice_perception.py
+```
+
+Perception requests a JSON schema from native Ollama and validates the final answer locally. Qwen3 classification disables thinking by default. Set ISAAC_PERCEPTION_THINKING=true to enable it within the same 200-token budget.
+
+Hands-free capture stores the playback gate with each microphone frame. This prevents speech captured before playback from being judged against the louder barge-in threshold when the reader catches up. The reader drains buffered frames on disconnect and reports overruns. A sustained utterance can still be missed if the input level is too low, the driver drops samples or STT returns an empty transcript. Onset and energy thresholds were preserved. The voice log includes the VAD confirmation window, endpoint delay, STT time, model time to first answer token, reply-text time, first synthesized segment time and end-of-speech to first playback. The latter includes endpointing when the detector supplies that measurement.
+
+A separate synthetic-audio smoke test sent “Selene, explain what Python is” through WebRTC VAD, CPU faster-whisper, the compiled graph, local Qwen3 and Edge TTS. A callback accepted decoded PCM without using the speakers. One run measured a 150 ms confirmation window, 551 ms endpoint delay, 1,473 ms transcription, 0.18 ms Perception, 6,034 ms to the first public model token, 11,250 ms from graph submission to complete reply text, and 2,936 ms to synthesize the first segment. End of speech to first PCM playback callback was 15,850 ms. This single run includes guard and provider overhead. The isolated classification benchmark above does not predict end-to-end voice latency.

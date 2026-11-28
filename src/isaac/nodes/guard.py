@@ -289,7 +289,7 @@ def guard_node(state: IsaacState) -> dict[str, Any]:
     injection attacks.  If blocked, routes to END with an explanation.
     """
     from isaac.config.settings import settings
-    from isaac.identity.address import selene_identity_reply
+    from isaac.identity.address import fixed_conversation_reply
 
     messages = state.get("messages", [])
     if not messages:
@@ -318,7 +318,9 @@ def guard_node(state: IsaacState) -> dict[str, Any]:
     world_model = state.get("world_model")
     has_attachments = bool(world_model and world_model.resources.get("_attachments"))
     fixed_identity_lookup = (
-        plain_text and not has_attachments and selene_identity_reply(user_text) is not None
+        plain_text
+        and not has_attachments
+        and fixed_conversation_reply(user_text, state.get("voice_session", False)) is not None
     )
     # Exact identity questions on the text path have a fixed reply in DirectResponse.
     # They still run through the regular expression checks.

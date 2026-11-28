@@ -346,6 +346,7 @@ class Settings(BaseSettings):
     voice_barge_in_energy: float = Field(default=0.012, ge=0.0001, le=1)
     voice_barge_in_onset_frames: int = Field(default=4, ge=1, le=20)
     voice_echo_tail_s: float = Field(default=0.15, ge=0, le=2)
+    perception_thinking: bool = False
     voice_llm_token_timeout_s: float = Field(default=60, ge=1, le=300)
     voice_tts_segment_timeout_s: float = Field(default=15, ge=1, le=120)
     voice_tts_provider: Literal["edge", "piper", "openai", "elevenlabs"] = "edge"

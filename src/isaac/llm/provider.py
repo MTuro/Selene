@@ -196,7 +196,16 @@ def get_perception_llm(*, timeout: float | None = None) -> BaseChatModel:
     ``{"observations": [...], "hypothesis": "...", "task_mode": "..."}``.
     Limiting output tokens is the single fastest win for Ollama.
     """
-    return _capped_llm(200, timeout=timeout)
+    from isaac.config.settings import get_settings
+    from isaac.llm.perception_schema import PerceptionResult
+
+    model = _capped_llm(200, timeout=timeout)
+    if getattr(model, "_llm_type", None) == "chat-ollama":
+        options: dict[str, Any] = {"format": PerceptionResult.model_json_schema()}
+        if getattr(model, "model", "").split(":")[0].lower() == "qwen3":
+            options["reasoning"] = get_settings().perception_thinking
+        return model.model_copy(update=options)
+    return model
 
 
 @lru_cache(maxsize=1)
@@ -206,7 +215,15 @@ def get_direct_response_llm() -> BaseChatModel:
     400 tokens is enough for conversational replies, greetings, and short
     answers.  Keeping it capped prevents runaway generation on a local model.
     """
-    return _capped_llm(400)
+    model = _capped_llm(400)
+    if (
+        getattr(model, "_llm_type", None) == "chat-ollama"
+        and getattr(model, "model", "").split(":")[0] == "qwen3"
+    ):
+        # Qwen3 can emit its deliberation as ordinary content with think=False.
+        # Request separate reasoning metadata and reserve room for the public answer.
+        return model.model_copy(update={"reasoning": True, "num_predict": 2048})
+    return model
 
 
 @lru_cache(maxsize=4)

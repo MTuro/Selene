@@ -242,6 +242,7 @@ class CaptureEvent:
     at: float
     audio: np.ndarray | None = None
     endpoint_latency_s: float | None = None
+    onset_latency_s: float | None = None
 
 
 def _webrtc_detector(mode: int) -> Callable[[np.ndarray], bool]:
@@ -316,7 +317,8 @@ class UtteranceDetector:
                 self._frames = list(self._history)
             self._history.clear()
             self._last_voice = at
-            return CaptureEvent(at)
+            window = onset if playback else self.onset_frames
+            return CaptureEvent(at, onset_latency_s=window * DEFAULT_FRAME_MS / 1000)
 
         self._frames.append(frame)
         if voiced:
@@ -340,7 +342,7 @@ async def capture_utterances(
     import sounddevice as sd
 
     frame_size = DEFAULT_SAMPLE_RATE * DEFAULT_FRAME_MS // 1000
-    frames: deque[tuple[float, np.ndarray]] = deque(maxlen=20)
+    frames: deque[tuple[float, np.ndarray, bool]] = deque(maxlen=20)
     detector = UtteranceDetector(
         is_speech=_webrtc_detector(settings.voice_vad_mode),
         energy=settings.voice_vad_energy,
@@ -350,8 +352,12 @@ async def capture_utterances(
         silence_s=settings.voice_vad_silence_s,
     )
 
+    dropped = 0
+
     def receive(indata: np.ndarray, _count: int, _time: Any, _status: Any) -> None:
-        frames.append((time.monotonic(), indata[:, 0].copy()))
+        nonlocal dropped
+        dropped += int(len(frames) == frames.maxlen or bool(_status))
+        frames.append((time.monotonic(), indata[:, 0].copy(), echo_gate()))
 
     with sd.InputStream(
         samplerate=DEFAULT_SAMPLE_RATE,
@@ -362,12 +368,16 @@ async def capture_utterances(
         callback=receive,
     ) as stream:
         last_frame = time.monotonic()
-        while stream.active and time.monotonic() - last_frame < 1.5:
+        reported = 0
+        while frames or (stream.active and time.monotonic() - last_frame < 1.5):
+            if reported != dropped:
+                logger.warning("Microphone capture overruns: %d", dropped)
+                reported = dropped
             if not frames:
                 await asyncio.sleep(0.01)
                 continue
-            last_frame, frame = frames.popleft()
-            if event := detector.feed(frame, last_frame, playback=echo_gate()):
+            last_frame, frame, playback = frames.popleft()
+            if event := detector.feed(frame, last_frame, playback=playback):
                 yield event
     raise OSError("Microphone stopped delivering audio")
 
