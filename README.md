@@ -770,3 +770,17 @@ See [NOTICE](NOTICE) for copyright information. Previously published releases re
 - [NetworkX](https://networkx.org/) — knowledge graphs
 - [ChromaDB](https://www.trychroma.com/) — vector storage
 - [Tauri](https://tauri.app/) — desktop app framework
+
+### Voice routing measurements
+
+On the local qwen3:4b setup, the median Perception time for “Selene, can you hear me?” was 1,671.930 ms on main (1358229) and 0.056 ms with the voice connectivity reply. All six baseline calls produced malformed classifier output and selected code. The fixed route selected direct without a model call. The name, Python and neural-network prompts were already direct. Their respective medians were 0.105, 0.112 and 0.116 ms on main and 0.097, 0.118 and 0.116 ms on the feature branch.
+
+These timings cover Perception only. To repeat, use the same interpreter, already-running local model, script and environment for both source trees. Set SOURCE_TREE to the checkout being measured. The script discards one warm-up and reports five-run medians.
+
+```bash
+PYTHONPATH="$SOURCE_TREE/src" ISAAC_HOME="$(mktemp -d)" HF_HUB_OFFLINE=1 \
+ISAAC_IDENTITY_PROFILE=selene ISAAC_LLM_PROVIDER=ollama ISAAC_FAST_MODEL=qwen3:4b \
+ISAAC_MODEL_NAME=qwen3:4b python scripts/benchmark_voice_perception.py
+```
+
+Perception requests a JSON schema from native Ollama and validates the final answer locally. Qwen3 classification disables thinking by default. Set ISAAC_PERCEPTION_THINKING=true to enable it within the same 200-token budget.
