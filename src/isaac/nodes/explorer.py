@@ -189,17 +189,10 @@ def _explore_arc(grids: list[dict[str, Any]]) -> tuple[list[str], str, str]:
 
 def _explore_general(state: IsaacState) -> list[str]:
     observations: list[str] = []
-    messages = state.get("messages", [])
-    if not messages:
-        return observations
+    from isaac.nodes.classifier import requested_web_query
 
-    user_text = ""
-    for msg in reversed(messages):
-        if hasattr(msg, "type") and msg.type == "human":
-            user_text = str(msg.content)
-            break
-
-    if not user_text:
+    query = requested_web_query(state.get("messages", []))[:100]
+    if not query:
         return observations
 
     try:
@@ -210,7 +203,6 @@ def _explore_general(state: IsaacState) -> list[str]:
         registry = get_tool_registry()
         search_tool = registry.get("web_search")
         if search_tool is not None:
-            query = user_text[:100]
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():

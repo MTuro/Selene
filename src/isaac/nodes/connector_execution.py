@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 from isaac.core.state import IsaacState, PlanStep
+from isaac.nodes.classifier import requested_web_query
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +127,9 @@ def connector_execution_node(state: IsaacState) -> dict[str, Any]:
         return {}
 
     detected = _detect_connectors(active.description)
+    query = requested_web_query(state.get("messages", []))
+    if not query and "web_search" in detected:
+        detected.remove("web_search")
     if not detected:
         logger.debug("ConnectorExecution: no connector hints in step '%s'.", active.description)
         return {}
@@ -183,7 +187,9 @@ def connector_execution_node(state: IsaacState) -> dict[str, Any]:
             )
             continue
 
-        kwargs = _extract_kwargs_from_description(connector_name, active.description)
+        kwargs = _extract_kwargs_from_description(
+            connector_name, query if connector_name == "web_search" else active.description
+        )
         logger.info("ConnectorExecution: invoking '%s' with %s", connector_name, kwargs)
         result = run_connector(connector_name, capability_token=capability_token, **kwargs)
         results.append(
